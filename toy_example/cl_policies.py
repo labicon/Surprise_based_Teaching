@@ -41,77 +41,10 @@ class TeacherModel(nn.Module):
         
         return actor, critic
 
-    def initalize_training(self, env):
-        
+   
 
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            
     
-        teacher_a_optim = torch.optim.Adam(self.actor.parameters(), lr = self.lr)
-        teacher_c_optim = torch.optim.Adam(self.critic.parameters(), lr = self.lr)
-    
-        teacher_iters = 10
-
-        states = env.reset()[0]
-
-        state_dim = env.observation_space.shape[0]
-        action_dim= env.action_space.n
-        teacher_memory = TeacherReplayBuffer(100, state_dim, action_dim)
-        return teacher_a_optim, teacher_c_optim, teacher_iters, teacher_memory 
-    
-    def training_loop(self, teacher_a_optim, teacher_c_optim, teacher_iters, teacher_memory, env, device):
-        
-        # if (i%self.render_every_i == 0):
-        #     env.render()
-        #collect teacher rollouts 
-        rollouts = self.rollout(env, device)
-        print("rollout ended")
-        teacher_memory.insert(rollouts)
-        cl_func = torch.nn.MSELoss()
-    
-        states = torch.vstack(rollouts.state)
-        new_states = torch.from_numpy(np.asarray(rollouts.new_state)).float()
-        actions = torch.from_numpy(np.asarray(rollouts.action))
-        rewards = torch.from_numpy(np.asarray(rollouts.reward)).float()
-        probs =  torch.from_numpy(np.asarray(rollouts.log_prob))
-
-        actor, value = self.forward(states)
-        
-        # rew_sup = suprisal_reward(rewards, actions, actor, value, student_reward, student_model)        
-        # A = rew_sup - value.detach()
-        A = rewards - value.detach()
-        #normalize advantage ? 
-        A = (A - A.mean()) / (A.std()+1e-10) 
-        
-        # critic_loss = nn.MSELoss()
-
-        for j in range(self.n_updates_per_iteration):             
-            
-            actor, value = self.forward(states)
-            action_dist = Categorical(logits=actor.unsqueeze(-2))
-            action = action_dist.probs.argmax(-1)
-            curr_prob = action_dist.log_prob(action)
-            
-            
-            ratio = torch.exp(curr_prob - probs)
-            
-            sur1 = ratio*A
-            sur2 = torch.clamp(ratio, .8, 1.2)*A 
-            
-            al = (-torch.min(sur1, sur2)).mean()
-            rewards = torch.reshape(rewards, (-1,))
-            cl = nn.MSELoss()(value, rewards)
-            
-            teacher_a_optim.zero_grad()
-            al.backward(retain_graph = True)
-            teacher_a_optim.step()
-            
-            teacher_c_optim.zero_grad()
-            cl.backward()
-            teacher_c_optim.step
-
-            
-            
-
     def rollout(self, env, device):
         rollouts = Transition([], [], [], [], [])
         with torch.no_grad(): 
