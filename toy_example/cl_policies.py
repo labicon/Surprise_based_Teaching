@@ -216,8 +216,8 @@ class Training():
             action = action_dist.probs.argmax(-1)
             
             inp = torch.hstack((states, action.reshape([action.shape[0], 1])))
-            s_cov, s_std = surprise_model.predict(inp, return_std = True)
-            s_dist = torch.distributions.normal.Normal(torch.tensor(s_std), torch.tensor(s_std))
+            s_mean, s_std = surprise_model.predict(inp, return_std = True)
+            s_dist = torch.distributions.normal.Normal(torch.tensor(s_mean), torch.tensor(s_std))
             s_prob = s_dist.log_prob(inp)[:,2]
             surprise_reward = teacher_reward + eta1*t_prob.reshape([t_prob.shape[0], 1]) + eta2*(t_prob.reshape([t_prob.shape[0], 1]) -s_prob.reshape([s_prob.shape[0], 1]))
            
