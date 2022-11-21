@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+
 import gym 
 import torch 
 import torch.nn as nn
@@ -31,59 +32,46 @@ def suprisal_reward(teacher_reward, t_prob, student_reward, student_policy, eta0
         surprise_reward = teacher_reward + eta1.item()*t_prob.clone().detach() + eta2*s_prob
     return  surprise_reward
  '''
-def evaluate_teacher(teacher, env):
-    episodes = 50
-
+def evaluate(model, env):
+    episodes = 1
+    steps =  200
     performance_list = []
-    teacher.test()
     for epi in range(episodes):
-        s = env.reset()
-
+        s = env.reset()[0]
         done = False
         cum_reward = 0.0
-        while not done:
-            actor, value = teacher(s)
-            ns, reward, done, _ = env.step(actor)
-            s = ns
+        #while not done:
+        for j in range(steps):
+            states = torch.tensor(s)
+            actor, critic = model(states)
+            action_dist = Categorical(logits=actor.unsqueeze(-2))
+            action = action_dist.probs.argmax(-1)
+            log_prob = action_dist.log_prob(action)
+            action = action.numpy()[0]
+            new_states, reward, dones, infos, _ = env.step(action)
+            s = new_states
             cum_reward += reward
         
         performance_list.append(cum_reward)
     
     return np.sum(performance_list)
 
-def evaluate_student(student, env): 
-    episodes = 50 
-    performance_list = []
-    student.test()
-    for epi in range(episodes):
-        s = env.reset()
 
-        done = False
-        cum_reward = 0.0
-        while not done:
-            Q  = student(s)
-            act = np.armax(Q)
-            ns, reward, done, _ = env.step(act)
-            s = ns
-            cum_reward += reward
-        
-        performance_list.append(cum_reward)
-    
-    return np.sum(performance_list)
 
 if __name__ == "__main__":
     action_space = env.action_space.n
     state_space = env.observation_space.shape[0]
 
-    teacher = cl_policies.TeacherModel(state_space, action_space, 32)
+    teacher = cl_policies.TeacherModel(state_space, action_space, 200)
     student = cl_policies.StudentModel(state_space, action_space)
 
     print("Training start")
     train = cl_policies.Training()
     train.train_loop(env, teacher, student, student)
     print("Training ended, Evaluation start")
-    t_perf = evaluate_teacher(teacher, env)
-    s_perf = evaluate_student(student, env)
+    t_perf = evaluate(teacher, env)
+    env2 = gym.make('MountainCar-v0', render_mode = "human")    
+    s_perf = evaluate(student, env2)
     
-    print("Teacher rewards: " + t_perf)
-    print("student rewards: "+ s_perf)
+    print("Teacher rewards: " + str(t_perf))
+    print("student rewards: "+ str(s_perf))
