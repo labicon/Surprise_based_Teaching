@@ -6,6 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions.categorical import Categorical
 from collections import deque, namedtuple
+from sklearn.gaussian_process import GaussianProcessRegressor
 
 Transition = namedtuple("Transition", ("state", "action", "reward", "new_state", "log_prob"))
 class TeacherModel(nn.Module): 
@@ -21,12 +22,12 @@ class TeacherModel(nn.Module):
 
         # Initialize training parameters
         self.timesteps_per_batch = 20               # Number of timesteps to run per batch
-        self.max_timesteps_per_episode = 20           # Max number of timesteps per episode
+        self.max_timesteps_per_episode = 200          # Max number of timesteps per episode
         self.n_updates_per_iteration = 10                # Number of times to update actor/critic per iteration
         self.lr = 0.005                                 # Learning rate of actor optimizer
         self.gamma = 0.95                               # Discount factor to be applied when calculating Rewards-To-Go
         self.clip = 0.2                                 # Recommended 0.2, helps define the threshold to clip the ratio during SGA
-        self.iters = 200
+        self.iters = 500
 
 		# Miscellaneous parameters
         self.render = True                              # If we should render during rollout
@@ -96,7 +97,7 @@ class StudentModel(nn.Module):
         self.critic = nn.Linear(hidden_layers +1, 1 )
         
         self.timesteps_per_batch = 20
-        self.max_timesteps_per_episode = 20 
+        self.max_timesteps_per_episode = 200
         
    
     def forward(self, x): 
@@ -110,7 +111,6 @@ class StudentModel(nn.Module):
             rewards = []
             log_probs = []
             states = env.reset()[0]
-            states = torch.tensor(states)
             done = False
             
             for i in range(self.timesteps_per_batch): 
@@ -130,7 +130,18 @@ class StudentModel(nn.Module):
                         break
                 
         return rewards, log_probs
-
+'''
+class SurpriseProb(nn.Module): 
+    def __init__(self, input_dim, output_dim):
+        self.layers = nn.Sequential()
+        return 
+    def forward(state, actions): 
+         input = torch.cat(state, actions)
+        out = self.layers(input)
+        return out
+    
+  '''
+  
 class TeacherReplayBuffer(object):
     def __init__(self, size, state_dim, action_dim):
         self.size = size 
@@ -173,12 +184,12 @@ class TeacherReplayBuffer(object):
 class Training():
     def __init__(self): 
         self.timesteps_per_batch = 20                 # Number of timesteps to run per batch
-        self.max_timesteps_per_episode = 20          # Max number of timesteps per episode
+        self.max_timesteps_per_episode = 200          # Max number of timesteps per episode
         self.n_updates_per_iteration = 10                # Number of times to update actor/critic per iteration
         self.lr = 0.005                                 # Learning rate of actor optimizer
         self.gamma = 0.95                               # Discount factor to be applied when calculating Rewards-To-Go
         self.clip = 0.2                                 # Recommended 0.2, helps define the threshold to clip the ratio during SGA
-        self.iters = 200
+        self.iters = 500
         
         self.render_every_i = 10                        # Only render every n iterations
         self.save_freq = 10                             # How often we save in number of iterations
@@ -188,20 +199,29 @@ class Training():
         self.eta0 = .75
        
        
-    def surprise_reward(self,teacher_reward, t_prob, student_reward, student_policy, states): 
+    def surprise_reward(self,teacher_reward, t_prob, student_reward, student_policy, states, actions, surprise_model): 
         with torch.no_grad(): 
             eta1 = self.eta0/(max(1, abs((1/teacher_reward.shape[0])*torch.sum(teacher_reward))))
             eta2 = self.eta0/(max(1, abs(1/student_reward.shape[0])*torch.sum(student_reward)))
-        
+            
+            inp = torch.hstack((states, actions.reshape([actions.shape[0], 1])))
+            #print(surprise_model.predict(inp, return_std = True))
+            t_cov, t_std = surprise_model.predict(inp, return_std = True)
+            t_dist = torch.distributions.normal.Normal(torch.tensor(t_std), torch.tensor(t_std))
+            t_prob = t_dist.log_prob(inp)[:,2]
            
             #need student log -prob
             act, c = student_policy(states)
-            #action_dist = Categorical(logits=Q.unsqueeze(-2))
             action_dist = Categorical(logits = act.unsqueeze(-2))
             action = action_dist.probs.argmax(-1)
-            s_prob = action_dist.log_prob(action)
-            surprise_reward = teacher_reward + eta1*t_prob.clone().detach() + eta2*s_prob
-        return  surprise_reward
+            
+            inp = torch.hstack((states, action.reshape([action.shape[0], 1])))
+            s_cov, s_std = surprise_model.predict(inp, return_std = True)
+            s_dist = torch.distributions.normal.Normal(torch.tensor(s_std), torch.tensor(s_std))
+            s_prob = s_dist.log_prob(inp)[:,2]
+            surprise_reward = teacher_reward + eta1*t_prob.reshape([t_prob.shape[0], 1]) + eta2*(t_prob.reshape([t_prob.shape[0], 1]) -s_prob.reshape([s_prob.shape[0], 1]))
+           
+        return  surprise_reward.float()
     
     
     def train_loop(self, env, teacher_model, student_model, student_tar): 
@@ -223,7 +243,8 @@ class Training():
         state_dim = env.observation_space.shape[0]
         action_dim= env.action_space.n
         teacher_memory = TeacherReplayBuffer(2*batch_size, state_dim, action_dim)
-
+        
+        surprise_prob = GaussianProcessRegressor()
         reset_count = 0
         update_count = 0 
         teacher_model.train()
@@ -244,9 +265,14 @@ class Training():
             actions = torch.from_numpy(np.asarray(rollouts.action))
             rewards = torch.from_numpy(np.asarray(rollouts.reward)).float()
             probs =  torch.from_numpy(np.asarray(rollouts.log_prob))
-
+            rewards = rewards.reshape([rewards.shape[0], 1])
+            
+            reg_input = torch.hstack((states, actions.reshape([actions.shape[0], 1])))
+            real_out = torch.hstack((new_states, actions.reshape([actions.shape[0], 1])))
+            surprise_prob.fit(reg_input, real_out)
+            
             actor, value = teacher_model.forward(states)
-            rew_sup = self.surprise_reward(rewards, probs, student_rewards, student_model, states)        
+            rew_sup = self.surprise_reward(rewards, probs, student_rewards, student_model, states, actions, surprise_prob)        
             A = rew_sup - value.detach()
             
             #A = rewards - value.detach()
@@ -266,9 +292,9 @@ class Training():
                 
                 ratio = torch.exp(curr_prob - probs)
                 
-                sur1 = ratio*A
-                sur2 = torch.clamp(ratio, .8, 1.2)*A 
+                sur1 = (ratio*A)
                 
+                sur2 = (torch.clamp(ratio, .8, 1.2)*A)
                 al = (-torch.min(sur1, sur2)).mean()
                 #rewards = torch.reshape(rewards, (-1,))
                 
@@ -277,8 +303,8 @@ class Training():
                 al.backward(retain_graph = True)
                 teacher_a_optim.step()
                 
-                
                 actor, value = teacher_model.forward(states)
+                
                 cl = nn.MSELoss()(value, rew_sup)
                 teacher_c_optim.zero_grad()
                 cl.backward()
@@ -326,6 +352,8 @@ class Training():
             #test student network -- rollouts? 
             #update student reward 
             student_rewards, _ = torch.tensor(student_model.validate(env))
+            print("teacher extrinsic reward: " + str(batch_rewards.mean().item()))
+            print("teacher surprise bonus reward: " + str(rew_sup.mean().item()))
             print("average student reward:" + str(student_rewards.mean().item()))
             #update target network every %% 
             update_count += 1 
@@ -337,4 +365,3 @@ class Training():
             reset_count += 1 
             if reset_count == self.reset_every: 
                 states = env.reset()
-        
