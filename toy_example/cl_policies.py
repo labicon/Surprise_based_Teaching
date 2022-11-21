@@ -206,8 +206,8 @@ class Training():
             
             inp = torch.hstack((states, actions.reshape([actions.shape[0], 1])))
             #print(surprise_model.predict(inp, return_std = True))
-            t_cov, t_std = surprise_model.predict(inp, return_std = True)
-            t_dist = torch.distributions.normal.Normal(torch.tensor(t_std), torch.tensor(t_std))
+            t_mean, t_std = surprise_model.predict(inp, return_std = True)
+            t_dist = torch.distributions.normal.Normal(torch.tensor(t_mean), torch.tensor(t_std))
             t_prob = t_dist.log_prob(inp)[:,2]
            
             #need student log -prob
