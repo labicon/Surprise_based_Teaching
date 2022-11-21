@@ -20,13 +20,13 @@ class TeacherModel(nn.Module):
         self.critic = nn.Linear(hidden_layers +1, 1 )
 
         # Initialize training parameters
-        self.timesteps_per_batch = 2048                 # Number of timesteps to run per batch
-        self.max_timesteps_per_episode = 200           # Max number of timesteps per episode
+        self.timesteps_per_batch = 20               # Number of timesteps to run per batch
+        self.max_timesteps_per_episode = 20           # Max number of timesteps per episode
         self.n_updates_per_iteration = 10                # Number of times to update actor/critic per iteration
         self.lr = 0.005                                 # Learning rate of actor optimizer
         self.gamma = 0.95                               # Discount factor to be applied when calculating Rewards-To-Go
         self.clip = 0.2                                 # Recommended 0.2, helps define the threshold to clip the ratio during SGA
-        self.iters = 200000
+        self.iters = 200
 
 		# Miscellaneous parameters
         self.render = True                              # If we should render during rollout
@@ -38,13 +38,9 @@ class TeacherModel(nn.Module):
         x = self.layers(x)
         actor = self.actor(x)
         critic = self.critic(x)
-        
         return actor, critic
-
-   
-
-            
     
+
     def rollout(self, env, device):
         rollouts = Transition([], [], [], [], [])
         with torch.no_grad(): 
@@ -69,7 +65,7 @@ class TeacherModel(nn.Module):
                     rollouts.state.append(states)
                     rollouts.action.append(action)
                     rollouts.reward.append(rewards)
-                    rollouts.new_state.append(new_states)
+                    rollouts.new_state.append(torch.tensor(new_states))
                     rollouts.log_prob.append(prob.numpy())
 
                     states = new_states
@@ -91,39 +87,47 @@ class TeacherModel(nn.Module):
 class StudentModel(nn.Module): 
     def __init__(self, input_dim, output_dim): 
         super(StudentModel, self).__init__()
-        hidden_dim = 32
-        self.layers = nn.Sequential(nn.Linear(input_dim, hidden_dim), 
-                                    nn.ReLU(),
-                                    nn.Linear(hidden_dim, output_dim) 
-                                    )
+        hidden_layers = 200
+        self.layers =nn.Sequential(nn.Linear(input_dim, hidden_layers ), 
+                              nn.Tanh(), 
+                              nn.Linear(hidden_layers,hidden_layers +1  ), 
+                              nn.Tanh())
+        self.actor = nn.Linear(hidden_layers +1, output_dim)
+        self.critic = nn.Linear(hidden_layers +1, 1 )
         
-        self.timesteps_per_batch = 2048
-        self.max_timesteps_per_episode = 200 
+        self.timesteps_per_batch = 20
+        self.max_timesteps_per_episode = 20 
         
+   
     def forward(self, x): 
-        out = self.layers(x)
-        return out
+        x = self.layers(x)
+        actor = self.actor(x)
+        critic = self.critic(x)
+        return actor, critic
 
     def validate(self, env):
-        rewards = []
-        log_probs = []
-        states = env.reset()[0]
-        done = False
-        
-        for i in range(self.timesteps_per_batch): 
-            for j in range(self.max_timesteps_per_episode):
-                Q = self.forward(states)
-                action_dist = Categorical(logits=Q.unsqueeze(-2))
-                action = action_dist.probs.argmax(-1)
-                log_prob = action_dist.log_prob(action)
-                action = action.numpy()
-                new_states, reward, dones, infos, _ = env.step(action)
-                
-                rewards = np.append(rewards, reward)
-                log_probs = np.append(log_probs, log_prob)
-                states = new_states
-                if done:
-                    break
+        with torch.no_grad():
+            rewards = []
+            log_probs = []
+            states = env.reset()[0]
+            states = torch.tensor(states)
+            done = False
+            
+            for i in range(self.timesteps_per_batch): 
+                for j in range(self.max_timesteps_per_episode):
+                    states = torch.tensor(states)
+                    actor, critic = self.forward(states)
+                    action_dist = Categorical(logits=actor.unsqueeze(-2))
+                    action = action_dist.probs.argmax(-1)
+                    log_prob = action_dist.log_prob(action)
+                    action = action.numpy()[0]
+                    new_states, reward, dones, infos, _ = env.step(action)
+                    
+                    rewards = np.append(rewards, reward)
+                    log_probs = np.append(log_probs, log_prob)
+                    states = new_states
+                    if done:
+                        break
                 
         return rewards, log_probs
 
@@ -152,29 +156,29 @@ class TeacherReplayBuffer(object):
             del self.memory.log_prob[0]
 
     def sample_batch(self, batch_size):
-        samples = Transition([], [], [], [])
+        samples = Transition([], [], [], [], [])
         indxs = np.random.choice(len(self.memory.state), size = batch_size, replace = False)
         if len(self.memory.state) < self.size: 
-            indxs = indxs[0:len(self.memory.state)-1]
+            indxs = indxs[0:len(self.memory.state)]
         
         for k in range(len(indxs)):
             samples.state.append(self.memory.state[indxs[k]])
             samples.action.append(self.memory.action[indxs[k]])
             samples.reward.append(self.memory.reward[indxs[k]])
             samples.new_state.append(self.memory.new_state[indxs[k]])
-            samples.new_state.append(self.memory.log_prob[indxs[k]])
+            samples.log_prob.append(self.memory.log_prob[indxs[k]])
 
         return samples
 
 class Training():
     def __init__(self): 
-        self.timesteps_per_batch = 2048                 # Number of timesteps to run per batch
-        self.max_timesteps_per_episode = 200           # Max number of timesteps per episode
+        self.timesteps_per_batch = 20                 # Number of timesteps to run per batch
+        self.max_timesteps_per_episode = 20          # Max number of timesteps per episode
         self.n_updates_per_iteration = 10                # Number of times to update actor/critic per iteration
         self.lr = 0.005                                 # Learning rate of actor optimizer
         self.gamma = 0.95                               # Discount factor to be applied when calculating Rewards-To-Go
         self.clip = 0.2                                 # Recommended 0.2, helps define the threshold to clip the ratio during SGA
-        self.iters = 200000
+        self.iters = 200
         
         self.render_every_i = 10                        # Only render every n iterations
         self.save_freq = 10                             # How often we save in number of iterations
@@ -191,13 +195,12 @@ class Training():
         
            
             #need student log -prob
-            Q = student_policy(states)
+            act, c = student_policy(states)
             #action_dist = Categorical(logits=Q.unsqueeze(-2))
-            action_dist = Categorical(logits = Q)
+            action_dist = Categorical(logits = act.unsqueeze(-2))
             action = action_dist.probs.argmax(-1)
             s_prob = action_dist.log_prob(action)
-            
-            surprise_reward = teacher_reward + eta1.item()*t_prob.clone().detach() + eta2*s_prob
+            surprise_reward = teacher_reward + eta1*t_prob.clone().detach() + eta2*s_prob
         return  surprise_reward
     
     
@@ -206,8 +209,10 @@ class Training():
     
         teacher_a_optim = torch.optim.Adam(teacher_model.parameters(), lr = self.lr)
         teacher_c_optim = torch.optim.Adam(teacher_model.parameters(), lr = self.lr)
-        student_optim = torch.optim.Adam(student_model.parameters(), lr = self.lr )
         
+        student_a_optim = torch.optim.Adam(student_model.parameters(), lr = self.lr )
+        student_c_optim = torch.optim.Adam(student_model.parameters(), lr = self.lr )
+
         batch_size = self.timesteps_per_batch*self.max_timesteps_per_episode
         
         student_rewards = torch.zeros(batch_size)
@@ -217,7 +222,7 @@ class Training():
 
         state_dim = env.observation_space.shape[0]
         action_dim= env.action_space.n
-        teacher_memory = TeacherReplayBuffer(100, state_dim, action_dim)
+        teacher_memory = TeacherReplayBuffer(2*batch_size, state_dim, action_dim)
 
         reset_count = 0
         update_count = 0 
@@ -234,23 +239,25 @@ class Training():
             cl_func = torch.nn.MSELoss()
         
             states = torch.vstack(rollouts.state)
-            new_states = torch.from_numpy(np.asarray(rollouts.new_state)).float()
+            new_states = torch.vstack(rollouts.new_state)
+            #new_states = torch.from_numpy(np.asarray(rollouts.new_state)).float()
             actions = torch.from_numpy(np.asarray(rollouts.action))
             rewards = torch.from_numpy(np.asarray(rollouts.reward)).float()
             probs =  torch.from_numpy(np.asarray(rollouts.log_prob))
 
             actor, value = teacher_model.forward(states)
-            
             rew_sup = self.surprise_reward(rewards, probs, student_rewards, student_model, states)        
             A = rew_sup - value.detach()
+            
             #A = rewards - value.detach()
             #normalize advantage ? 
-            A = (A - A.mean()) / (A.std()+1e-10) 
+            #A = (A - A.mean()) / (A.std()+1e-10) 
             
             # critic_loss = nn.MSELoss()
 
-            for j in range(self.n_updates_per_iteration):             
-                
+            for j in range(self.n_updates_per_iteration):    
+                if j == 0: 
+                    print("teacher training")
                 actor, value = teacher_model.forward(states)
                 action_dist = Categorical(logits=actor.unsqueeze(-2))
                 action = action_dist.probs.argmax(-1)
@@ -263,43 +270,63 @@ class Training():
                 sur2 = torch.clamp(ratio, .8, 1.2)*A 
                 
                 al = (-torch.min(sur1, sur2)).mean()
-                rewards = torch.reshape(rewards, (-1,))
-                cl = nn.MSELoss()(value, rewards)
+                #rewards = torch.reshape(rewards, (-1,))
+                
                 
                 teacher_a_optim.zero_grad()
                 al.backward(retain_graph = True)
                 teacher_a_optim.step()
                 
+                
+                actor, value = teacher_model.forward(states)
+                cl = nn.MSELoss()(value, rew_sup)
                 teacher_c_optim.zero_grad()
                 cl.backward()
                 teacher_c_optim.step
                 
             
             for k in range(self.n_updates_per_iteration): 
+                if k ==0: 
+                    print("student training")
                 student_loss = torch.nn.HuberLoss()
-                
-                batch = teacher_memory.sample_batch(batch_size)
+                batch = teacher_memory.sample_batch(batch_size )
                 batch_states = torch.vstack(batch.state)
-                batch_new_states = torch.from_numpy(np.asarray(batch.new_state)).float()
+
+                batch_new_states = torch.vstack(batch.new_state)
                 batch_actions = torch.from_numpy(np.asarray(batch.action))
                 batch_rewards = torch.from_numpy(np.asarray(batch.reward)).float()
-                batch_probs =  torch.from_numpy(np.asarray(batch.log_prob))
+                #batch_probs =  torch.from_numpy(np.asarray(batch.log_prob))
+                #q_curr = teacher_model(batch_states).gather(1, batch_actions)
+                actor, value = student_model(batch_states)
+                new_actor, new_value = student_model(batch_new_states)
+                rewards = torch.reshape(batch_rewards, [batch_rewards.shape[0],1])
+                q_value = rewards + self.gamma*new_value 
+                cl = cl_func(value, q_value.detach())
+                student_c_optim.zero_grad()
+                cl.backward()
+                student_c_optim.step()
                 
-                q_vals = student_model(batch_states)
-                action_q = torch.gather(q_vals, 1, batch_actions)
+                #advantage
+                actor, value = student_model(batch_states)
+                new_actor, new_value = student_model(batch_new_states)
+                q_value = rewards + self.gamma*new_value 
+                advantage = q_value - value 
+                action_dist = Categorical(logits=actor.unsqueeze(-2))
+                #action = action_dist.probs.argmax(-1)
+                log_prob = action_dist.log_prob(batch_actions).sum(dim = -1)
+                #lp = log_prob.log_prob(actions).sum(dim = -1)
+                lp = torch.reshape(log_prob, [log_prob.shape[0], 1])
+                al = -1*lp.T@(advantage.detach())
+                student_a_optim.zero_grad()
+                al.backward()
+                student_a_optim.step()
+
                 
-                tar_q_vals = student_tar(batch_new_states)
-                tar_action_q = torch.max(tar_q_vals, 1)
-                q = rewards + self.gamma*tar_action_q
-                
-                student_optim.zero_grad()
-                loss = student_loss(action_q, q)
-                loss.backward()
-                student_optim.step()
                 
             #test student network -- rollouts? 
             #update student reward 
-            student_rewards, _ = student_model.student_validate(env)
+            student_rewards, _ = torch.tensor(student_model.validate(env))
+            print("average student reward:" + str(student_rewards.mean().item()))
             #update target network every %% 
             update_count += 1 
             if update_count == self.update_every: 
