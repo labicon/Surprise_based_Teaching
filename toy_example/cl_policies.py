@@ -227,7 +227,7 @@ class Training():
 
         return
     
-    def surprise_reward(self,teacher_reward, t_prob, student_reward, student_policy, states, actions, t_surprise_model, s_surprise_model): 
+    def surprise_reward(self,teacher_reward, t_prob, student_reward, student_policy, states, actions, new_states, t_surprise_model, s_surprise_model): 
         with torch.no_grad(): 
             eta1 = self.eta0_t/(max(1, abs((1/teacher_reward.shape[0])*torch.sum(teacher_reward))))
             eta2 = self.eta0_s/(max(1, abs(1/student_reward.shape[0])*torch.sum(student_reward)))
@@ -236,7 +236,10 @@ class Training():
             #print(surprise_model.predict(inp, return_std = True))
             t_mean, t_std = t_surprise_model.predict(inp, return_std = True)
             t_dist = torch.distributions.normal.Normal(torch.tensor(t_mean), torch.tensor(t_std))
-            t_prob = t_dist.log_prob(inp)[:,2]
+            t_prob = t_dist.log_prob(new_states)
+            print(t_mean)
+            print(new_states)
+            print(t_prob)
            
             #need student log -prob
             act, c = student_policy(states)
@@ -246,7 +249,7 @@ class Training():
             inp = torch.hstack((states, action.reshape([action.shape[0], 1])))
             s_mean, s_std = s_surprise_model.predict(inp, return_std = True)
             s_dist = torch.distributions.normal.Normal(torch.tensor(s_mean), torch.tensor(s_std))
-            s_prob = s_dist.log_prob(inp)[:,2]
+            s_prob = s_dist.log_prob(new_states)[:,1]
             surprise_reward = teacher_reward - eta1*t_prob.reshape([t_prob.shape[0], 1]) + eta2*(t_prob.reshape([t_prob.shape[0], 1]) -s_prob.reshape([s_prob.shape[0], 1]))
            
             self.t_surprise = np.append(self.t_surprise,t_prob.mean().item() )
@@ -302,7 +305,7 @@ class Training():
             rewards = rewards.reshape([rewards.shape[0], 1])
             
             reg_input = torch.hstack((states, actions.reshape([actions.shape[0], 1])))
-            real_out = torch.hstack((new_states, actions.reshape([actions.shape[0], 1])))
+            real_out = new_states
             t_surprise_prob.fit(reg_input, real_out)
             
             s_rollouts = teacher_model.rollout(env, device, student_model)
@@ -314,12 +317,12 @@ class Training():
             s_rewards = s_rewards.reshape([s_rewards.shape[0], 1])
             
             s_reg_input = torch.hstack((s_states, s_actions.reshape([s_actions.shape[0], 1])))
-            s_real_out = torch.hstack((s_new_states, s_actions.reshape([s_actions.shape[0], 1])))
+            s_real_out = s_new_states
             s_surprise_prob.fit(s_reg_input, s_real_out)
             
             
             actor, value = teacher_model.forward(states)
-            rew_sup = self.surprise_reward(rewards, probs, student_rewards, student_model, states, actions, t_surprise_prob, s_surprise_prob)        
+            rew_sup = self.surprise_reward(rewards, probs, student_rewards, student_model, states, actions, new_states, t_surprise_prob, s_surprise_prob)        
             A = rew_sup - value.detach()
             #A = rewards - value.detach()
             #normalize advantage ? 
