@@ -236,10 +236,7 @@ class Training():
             #print(surprise_model.predict(inp, return_std = True))
             t_mean, t_std = t_surprise_model.predict(inp, return_std = True)
             t_dist = torch.distributions.normal.Normal(torch.tensor(t_mean), torch.tensor(t_std))
-            t_prob = t_dist.log_prob(new_states)
-            print(t_mean)
-            print(new_states)
-            print(t_prob)
+            t_prob = t_dist.log_prob(new_states)[:,0] + t_dist.log_prob(new_states)[:,1]
            
             #need student log -prob
             act, c = student_policy(states)
@@ -249,7 +246,7 @@ class Training():
             inp = torch.hstack((states, action.reshape([action.shape[0], 1])))
             s_mean, s_std = s_surprise_model.predict(inp, return_std = True)
             s_dist = torch.distributions.normal.Normal(torch.tensor(s_mean), torch.tensor(s_std))
-            s_prob = s_dist.log_prob(new_states)[:,1]
+            s_prob = s_dist.log_prob(new_states)[:,0] + s_dist.log_prob(new_states)[:,1]
             surprise_reward = teacher_reward - eta1*t_prob.reshape([t_prob.shape[0], 1]) + eta2*(t_prob.reshape([t_prob.shape[0], 1]) -s_prob.reshape([s_prob.shape[0], 1]))
            
             self.t_surprise = np.append(self.t_surprise,t_prob.mean().item() )
