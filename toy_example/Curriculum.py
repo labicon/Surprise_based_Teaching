@@ -30,7 +30,7 @@ from SurpriseFunctions import SurpriseBonus, SurpriseWorkerFactory, CustomSample
 
 
 @wrap_experiment
-def ppo_pendulum(ctxt=None, seed=1):
+def ppo(ctxt=None, seed=1):
     """Train PPO with InvertedDoublePendulum-v2 environment.
 
     Args:
@@ -72,4 +72,4 @@ def ppo_pendulum(ctxt=None, seed=1):
     trainer.train(n_epochs=10, batch_size=1000)
 
 
-ppo_pendulum(seed=1)
+ppo(seed=1)
