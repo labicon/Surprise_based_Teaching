@@ -154,7 +154,7 @@ class GaussianMLPBaseline(GaussianMLPBaselineModel, Baseline):
         self._initialize()
 
     def _initialize(self):
-        tf.compat.v1.disable_eager_execution()
+        #tf.compat.v1.disable_eager_execution()
         input_var = tf.compat.v1.placeholder(tf.float32,
                                              shape=(None, ) +
                                              self._input_shape)
