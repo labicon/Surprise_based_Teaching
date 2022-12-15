@@ -26,8 +26,8 @@ import copy
 from collections import defaultdict
 from garage.sampler.sampler import Sampler
 from garage import EpisodeBatch
-
-
+from Regressor import GaussianMLPBaseline
+from garage.replay_buffer import ReplayBuffer
 
 
 
@@ -71,10 +71,13 @@ class SurpriseWorker(Worker):
         self.student = worker_args["student"]
         self.eta0 = worker_args["eta0"]
         
-
+        
 
     def SurpriseBonus(self, action, reward,  observations, last_observations):
-
+        print(last_observations)
+        batch = torch.cat([last_observations, action])
+        log = self.regressor.get_log_prob(batch, observations)
+        print("log likelihood" +  str(log))
         eta1 = self.eta0 / np.abs(reward)
         return reward
     
@@ -112,7 +115,8 @@ class SurpriseWorker(Worker):
             TypeError: If env_update is not one of the documented types.
         """
         self.env, _ = _apply_env_update(self.env, env_update)
-
+        #self.replay = ReplayBuffer(env_spec = self.env.spec, size_in_transitions= 10000, time_horizon = 500)
+        self.regressor = GaussianMLPBaseline(env_spec = self.env.spec)
     def start_episode(self):
         """Begin a new episode."""
         self._eps_length = 0
@@ -206,7 +210,11 @@ class SurpriseWorker(Worker):
         self.start_episode()
         while not self.step_episode():
             pass
-        return self.collect_episode()
+        episode = self.collect_episode()
+        print(episode)
+        #self.replay.store_episode(episode)
+        
+        return episode
 
     def shutdown(self):
         """Close the worker's environment."""
