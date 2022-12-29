@@ -5,314 +5,163 @@ Created on Sun Dec  4 18:02:13 2022
 
 @author: w044elc
 """
-from dowel import tabular
 import numpy as np
-import tensorflow as tf
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
-from garage import make_optimizer
-from garage.experiment import deterministic
-from garage.np.baselines import Baseline
-from garage.tf import compile_function
-from garage.tf.baselines.gaussian_mlp_baseline_model import (
-    GaussianMLPBaselineModel)
-from garage.tf.optimizers import LBFGSOptimizer, PenaltyLBFGSOptimizer
+class GaussianMLP(nn.Module):
+    def __init__(self, input_dim, output_dim, hidden_size):
+        super(GaussianMLP, self).__init__()
 
+        # first half outputs mean value, last half outputs variance
+        self.output_dim = output_dim
 
-# pylint: disable=too-many-ancestors
-class GaussianMLPBaseline(GaussianMLPBaselineModel, Baseline):
-    """Gaussian MLP Baseline with Model.
-    It fits the input data to a gaussian distribution estimated by
-    a MLP.
-    Args:
-        env_spec (garage.envs.env_spec.EnvSpec): Environment specification.
-        subsample_factor (float): The factor to subsample the data. By
-            default it is 1.0, which means using all the data.
-        num_seq_inputs (float): Number of sequence per input. By default
-            it is 1.0, which means only one single sequence.
-        name (str): Name of baseline.
-        hidden_sizes (list[int]): Output dimension of dense layer(s) for
-            the MLP for mean. For example, (32, 32) means the MLP consists
-            of two hidden layers, each with 32 hidden units.
-        hidden_nonlinearity (Callable): Activation function for intermediate
-            dense layer(s). It should return a tf.Tensor. Set it to
-            None to maintain a linear activation.
-        hidden_w_init (Callable): Initializer function for the weight
-            of intermediate dense layer(s). The function should return a
-            tf.Tensor.
-        hidden_b_init (Callable): Initializer function for the bias
-            of intermediate dense layer(s). The function should return a
-            tf.Tensor.
-        output_nonlinearity (Callable): Activation function for output dense
-            layer. It should return a tf.Tensor. Set it to None to
-            maintain a linear activation.
-        output_w_init (Callable): Initializer function for the weight
-            of output dense layer(s). The function should return a
-            tf.Tensor.
-        output_b_init (Callable): Initializer function for the bias
-            of output dense layer(s). The function should return a
-            tf.Tensor.
-        optimizer (garage.tf.Optimizer): Optimizer for minimizing the negative
-            log-likelihood.
-        optimizer_args (dict): Arguments for the optimizer. Default is None,
-            which means no arguments.
-        use_trust_region (bool): Whether to use trust region constraint.
-        max_kl_step (float): KL divergence constraint for each iteration.
-        learn_std (bool): Is std trainable.
-        init_std (float): Initial value for std.
-        adaptive_std (bool): Is std a neural network. If False, it will be a
-            parameter.
-        std_share_network (bool): Boolean for whether mean and std share
-            the same network.
-        std_hidden_sizes (list[int]): Output dimension of dense layer(s) for
-            the MLP for std. For example, (32, 32) means the MLP consists
-            of two hidden layers, each with 32 hidden units.
-        std_nonlinearity (Callable): Nonlinearity for each hidden layer in
-            the std network.
-        layer_normalization (bool): Bool for using layer normalization or not.
-        normalize_inputs (bool): Bool for normalizing inputs or not.
-        normalize_outputs (bool): Bool for normalizing outputs or not.
-        subsample_factor (float): The factor to subsample the data. By default
-            it is 1.0, which means using all the data.
-    """
-    
-    def __init__(self,
-                 env_spec,
-                 num_seq_inputs=1,
-                 name='GaussianMLPBaseline',
-                 hidden_sizes=(32, 32),
-                 hidden_nonlinearity=tf.nn.tanh,
-                 hidden_w_init=tf.initializers.glorot_uniform(
-                     seed=deterministic.get_tf_seed_stream()),
-                 hidden_b_init=tf.zeros_initializer(),
-                 output_nonlinearity=None,
-                 output_w_init=tf.initializers.glorot_uniform(
-                     seed=deterministic.get_tf_seed_stream()),
-                 output_b_init=tf.zeros_initializer(),
-                 optimizer=None,
-                 optimizer_args=None,
-                 use_trust_region=True,
-                 max_kl_step=0.01,
-                 learn_std=True,
-                 init_std=1.0,
-                 adaptive_std=False,
-                 std_share_network=False,
-                 std_hidden_sizes=(32, 32),
-                 std_nonlinearity=None,
-                 layer_normalization=False,
-                 normalize_inputs=True,
-                 normalize_outputs=True,
-                 subsample_factor=1.0):
-        self._env_spec = env_spec
-        self._num_seq_inputs = num_seq_inputs
-        self._use_trust_region = use_trust_region
-        self._max_kl_step = max_kl_step
-        self._normalize_inputs = normalize_inputs
-        self._normalize_outputs = normalize_outputs
-        self._subsample_factor = subsample_factor
-        if optimizer_args is None:
-            optimizer_args = dict()
-        if optimizer is None:
-            if use_trust_region:
-                self._optimizer = make_optimizer(PenaltyLBFGSOptimizer,
-                                                 **optimizer_args)
+        self.fc1 = nn.Linear(input_dim, int(hidden_size), bias=True)
+        nn.init.xavier_normal_(self.fc1.weight)
+
+        self.fc2 = nn.Linear(int(hidden_size), int(hidden_size), bias=True)
+        nn.init.xavier_normal_(self.fc2.weight)
+
+        self.output_layer = nn.Linear(hidden_size, 2*self.output_dim, bias=True)
+        nn.init.xavier_normal_(self.output_layer.weight)
+
+    def forward(self, input_states):
+        input_states = input_states.float()
+        x = self.fc1(input_states)
+        x = F.relu(x)
+        x = self.fc2(x)
+        x = F.relu(x)
+
+        output = self.output_layer(x)
+
+        return output
+
+    def get_distribution(self, x):
+        with torch.no_grad():
+            output = self.forward(x)
+
+            if output.dim() == 2:
+                mean = output[:, :self.output_dim]
+                logvar = output[:, self.output_dim:]
             else:
-                self._optimizer = make_optimizer(LBFGSOptimizer,
-                                                 **optimizer_args)
-        else:
-            self._optimizer = make_optimizer(optimizer, **optimizer_args)
+                mean = output[:self.output_dim]
+                logvar = output[self.output_dim:]                
 
-        super().__init__(name=name,
-                         input_shape=(env_spec.observation_space.flat_dim *
-                                      num_seq_inputs, ),
-                         output_dim=1,
-                         hidden_sizes=hidden_sizes,
-                         hidden_nonlinearity=hidden_nonlinearity,
-                         hidden_w_init=hidden_w_init,
-                         hidden_b_init=hidden_b_init,
-                         output_nonlinearity=output_nonlinearity,
-                         output_w_init=output_w_init,
-                         output_b_init=output_b_init,
-                         learn_std=learn_std,
-                         adaptive_std=adaptive_std,
-                         std_share_network=std_share_network,
-                         init_std=init_std,
-                         min_std=None,
-                         max_std=None,
-                         std_hidden_sizes=std_hidden_sizes,
-                         std_hidden_nonlinearity=std_nonlinearity,
-                         std_output_nonlinearity=None,
-                         std_parameterization='exp',
-                         layer_normalization=layer_normalization)
-        # model for old distribution, used when trusted region is on
-        self._old_model = self.clone_model(name=name + '_old_model')
-        self._x_mean = None
-        self._x_std = None
-        self._y_mean = None
-        self._y_std = None
-        self._old_network = None
+            # prohibit var becoming 0
+            var = torch.exp(logvar) + 0.001 * torch.ones_like(logvar)
 
-        self._initialize()
+            gaussian_distribution = []
+            
+            if output.dim() == 2:
+                for i in range(output.shape[0]):
+                    gaussian_distribution.append(torch.distributions.normal.Normal(mean[i,:], var[i,:]))
+            else:
+                gaussian_distribution.append(torch.distributions.normal.Normal(mean, var))
 
-    def _initialize(self):
-        #tf.compat.v1.disable_eager_execution()
-        input_var = tf.compat.v1.placeholder(tf.float32,
-                                             shape=(None, ) +
-                                             self._input_shape)
-        ys_var = tf.compat.v1.placeholder(dtype=tf.float32,
-                                          name='ys',
-                                          shape=(None, self._output_dim))
+        return gaussian_distribution
 
-        self._old_network = self._old_model.build(input_var)
-        (norm_dist, norm_mean, norm_log_std, _, mean, _, self._x_mean,
-         self._x_std, self._y_mean,
-         self._y_std) = self.build(input_var).outputs
-        self._dist = norm_dist
-        normalized_ys_var = (ys_var - self._y_mean) / self._y_std
-        old_normalized_dist = self._old_network.normalized_dist
 
-        mean_kl = tf.reduce_mean(old_normalized_dist.kl_divergence(norm_dist))
-        loss = -tf.reduce_mean(norm_dist.log_prob(normalized_ys_var))
-        self._f_predict = compile_function([input_var], mean)
-        self._f_pdists = compile_function([input_var], [mean, norm_log_std])
-        optimizer_args = dict(
-            loss=loss,
-            target=self,
-            network_outputs=[norm_mean, norm_log_std],
-        )
-        if self._use_trust_region:
-            optimizer_args['leq_constraint'] = (mean_kl, self._max_kl_step)
-        optimizer_args['inputs'] = [input_var, ys_var]
-        with tf.name_scope('update_opt'):
-            self._optimizer.update_opt(**optimizer_args)
+class PNNLoss_Gaussian(nn.Module):
+    '''
+    Here is a brief aside on why we want and will use this loss. Essentially, we will incorporate this loss function to include a probablistic nature to the dynamics learning nueral nets. The output of the Probablistic Nueral Net (PNN) or Bayesian Neural Net (BNN) will be both a mean for each trained variable and an associated variance. This loss function will take the mean (u), variance (sig), AND the true trained value (s) to compare against the mean. Stacked variances form Cov matrix
+    loss_gaussian = sum_{data} (u - s)^T Cov^-1 (u-s) + log Det(Cov)
+    Need to add code like this to the implementation:
+         To bound the variance output for a probabilistic network to be between the upper and lower bounds found during training the network on the training data, we used the following code with automatic differentiation:
+         logvar = max_logvar - tf.nn.softplus(max_logvar - logvar)
+         logvar = min_logvar + tf.nn.softplus(logvar - min_logvar)
+         var = torch.exp(logvar)
+         with a small regularization penalty on term on max_logvar so that it does not grow beyond the training distribution’s maximum output variance, and on the negative of min_logvar so that it does not drop below the training distribution’s minimum output variance.
+    '''
 
-    # pylint: disable=unsubscriptable-object
-    def fit(self, paths):
-        """Fit regressor based on paths.
-        Args:
-            paths (list[dict]): Sample paths.
-        """
-        xs = np.concatenate([p['observations'] for p in paths])
-        if not isinstance(xs, np.ndarray) or len(xs.shape) > 2:
-            xs = self._env_spec.observation_space.flatten_n(xs)
-        ys = np.concatenate([p['returns'] for p in paths])
-        ys = ys.reshape((-1, 1))
+    def __init__(self, idx=[0, 1, 2, 3, 4, 5, 6, 7, 8]):
+        super(PNNLoss_Gaussian, self).__init__()
 
-        if self._subsample_factor < 1:
-            num_samples_tot = xs.shape[0]
-            idx = np.random.randint(
-                0, num_samples_tot,
-                int(num_samples_tot * self._subsample_factor))
-            xs, ys = xs[idx], ys[idx]
+        self.idx = idx
+        self.initialized_maxmin_logvar = True
+        # Scalars are proportional to the variance to the loaded prediction data
+        # self.scalers    = torch.tensor([2.81690141, 2.81690141, 1.0, 0.02749491, 0.02615976, 0.00791358])
+        self.scalers = torch.tensor([1, 1, 1, 1, 1, 1, 1, 1, 1])
 
-        if self._normalize_inputs:
-            # recompute normalizing constants for inputs
-            self._x_mean.load(np.mean(xs, axis=0, keepdims=True))
-            self._x_std.load(np.std(xs, axis=0, keepdims=True) + 1e-8)
-            self._old_network.x_mean.load(np.mean(xs, axis=0, keepdims=True))
-            self._old_network.x_std.load(
-                np.std(xs, axis=0, keepdims=True) + 1e-8)
-        if self._normalize_outputs:
-            # recompute normalizing constants for outputs
-            self._y_mean.load(np.mean(ys, axis=0, keepdims=True))
-            self._y_std.load(np.std(ys, axis=0, keepdims=True) + 1e-8)
-            self._old_network.y_mean.load(np.mean(ys, axis=0, keepdims=True))
-            self._old_network.y_std.load(
-                np.std(ys, axis=0, keepdims=True) + 1e-8)
-        inputs = [xs, ys]
-        loss_before = self._optimizer.loss(inputs)
-        tabular.record('{}/LossBefore'.format(self._name), loss_before)
-        self._optimizer.optimize(inputs)
-        loss_after = self._optimizer.loss(inputs)
-        tabular.record('{}/LossAfter'.format(self._name), loss_after)
-        if self._use_trust_region:
-            tabular.record('{}/MeanKL'.format(self._name),
-                           self._optimizer.constraint_val(inputs))
-        tabular.record('{}/dLoss'.format(self._name), loss_before - loss_after)
-        self._old_model.parameters = self.parameters
+        # weight the parts of loss
+        self.lambda_cov = 1  # scaling the log(cov()) term in loss function
+        self.lambda_mean = 1
 
-    def predict(self, paths):
-        """Predict value based on paths.
-        Args:
-            paths (list[dict]): Sample paths.
-        Returns:
-            numpy.ndarray: Predicted value.
-        """
-        xs = paths['observations']
-        if not isinstance(xs, np.ndarray) or len(xs.shape) > 2:
-            xs = self._env_spec.observation_space.flatten_n(xs)
-        return self._f_predict(xs).flatten()
+    def set_lambdas(self, l_mean, l_cov):
+        # sets the weights of the loss function
+        self.lambda_cov = l_mean
+        self.lambda_mean = l_cov
+
+    def get_datascaler(self):
+        return self.scalers
+
+    def softplus_raw(self, input):
+        # Performs the elementwise softplus on the input
+        # softplus(x) = 1/B * log(1+exp(B*x))
+        B = torch.tensor(1, dtype=torch.float)
+        return (torch.log(1 + torch.exp(input.mul_(B)))).div_(B)
+
+    def forward(self, output, target, max_logvar, min_logvar):
+        '''
+        output is a vector of length 2d
+        mean is a vector of length d, which is the first set of outputs of the PNN
+        var is a vector of variances for each of the respective means
+        target is a vector of the target values for each of the mean
+        '''
+
+        # Initializes parameterss
+        d2 = output.size()[1]
+        d = torch.tensor(d2 / 2, dtype=torch.int32)
+        mean = output[:, :d]
+        logvar = output[:, d:]
+        print(logvar.shape)
+        # Caps max and min log to avoid NaNs
+        logvar = max_logvar - self.softplus_raw(max_logvar - logvar)
+        logvar = min_logvar + self.softplus_raw(logvar - min_logvar)
+
+        # Computes loss
+        var = torch.exp(logvar)
+        b_s = mean.size()[0]  # batch size
+
+        eps = 0  # Add to variance to avoid 1/0
+
+        # A = mean - target.expand_as(mean)
+        # A.mul_(self.scalers)
+        # B = torch.div(mean - target.expand_as(mean), var.add(eps))
+        # # B.mul_(self.scalers)
+        # loss = torch.sum(self.lambda_mean * torch.bmm(A.view(b_s, 1, -1), B.view(b_s, -1, 1)).reshape(-1,1) + self.lambda_cov * torch.log(torch.abs(torch.prod(var.add(eps), 1)).reshape(-1, 1)))
+
+        A = self.lambda_mean * torch.sum(((mean - target.expand_as(mean)) ** 2) / var, 1)
+
+        B = self.lambda_cov * torch.log(torch.abs(torch.prod(var.add(eps), 1)))
+
+        loss = torch.sum(A + B)
+
+        return loss
     
-    def get_log_prob(self, xs, ys): 
-        means, log_stds = self._f_pdists(xs)
-        return self._dist.log_likelihood(ys)
+
+class Regressor(): 
+    def __init__(self, input_dim, output_dim, hidden_sizes): 
+        
+        self.model = GaussianMLP(input_dim, output_dim, hidden_sizes)
+        self.loss = PNNLoss_Gaussian()
+        
+    def fit(self, x_inp, out_real): 
+        optimizer = torch.optim.Adam(params = self.model.parameters(), lr = 1e-4)
+        
+        for i in range(100): 
+            out = self.model(x_inp)
+            max_logvar = out[:,3]
+            min_logvar = out[:,2]
+            loss = self.loss(out[:,:1], out_real, max_logvar, min_logvar)
+            loss.backward()
+            optimizer.step()
+            
+    def predict(self, x_inp): 
+        prediction = self.model(x_inp)
+        return prediction 
     
-    def clone_model(self, name):
-        """Return a clone of the GaussianMLPBaselineModel.
-        It copies the configuration of the primitive and also the parameters.
-        Args:
-            name (str): Name of the newly created model. It has to be
-                different from source policy if cloned under the same
-                computational graph.
-        Returns:
-            garage.tf.baselines.GaussianMLPBaselineModel: Newly cloned model.
-        """
-        new_baseline = GaussianMLPBaselineModel(
-            name=name,
-            input_shape=(self._env_spec.observation_space.flat_dim *
-                         self._num_seq_inputs, ),
-            output_dim=1,
-            hidden_sizes=self._hidden_sizes,
-            hidden_nonlinearity=self._hidden_nonlinearity,
-            hidden_w_init=self._hidden_w_init,
-            hidden_b_init=self._hidden_b_init,
-            output_nonlinearity=self._output_nonlinearity,
-            output_w_init=self._output_w_init,
-            output_b_init=self._output_b_init,
-            learn_std=self._learn_std,
-            adaptive_std=self._adaptive_std,
-            std_share_network=self._std_share_network,
-            init_std=self._init_std,
-            min_std=None,
-            max_std=None,
-            std_hidden_sizes=self._std_hidden_sizes,
-            std_hidden_nonlinearity=self._std_hidden_nonlinearity,
-            std_output_nonlinearity=None,
-            std_parameterization='exp',
-            layer_normalization=self._layer_normalization)
-        new_baseline.parameters = self.parameters
-        return new_baseline
-
-    @property
-    def recurrent(self):
-        """bool: If this module has a hidden state."""
-        return False
-
-    @property
-    def env_spec(self):
-        """Policy environment specification.
-        Returns:
-            garage.EnvSpec: Environment specification.
-        """
-        return self._env_spec
-
-    def __getstate__(self):
-        """Object.__getstate__.
-        Returns:
-            dict: The state to be pickled for the instance.
-        """
-        new_dict = super().__getstate__()
-        del new_dict['_f_predict']
-        del new_dict['_x_mean']
-        del new_dict['_x_std']
-        del new_dict['_y_mean']
-        del new_dict['_y_std']
-        del new_dict['_old_network']
-        return new_dict
-
-    def __setstate__(self, state):
-        """Object.__setstate__.
-        Args:
-            state (dict): Unpickled state.
-        """
-        super().__setstate__(state)
-        self._initialize()
+    def log_prob(self, x_inp): 
+        log_prob = 0
+        return log_prob
+        
