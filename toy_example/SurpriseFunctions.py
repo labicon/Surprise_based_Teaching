@@ -26,7 +26,7 @@ import copy
 from collections import defaultdict
 from garage.sampler.sampler import Sampler
 from garage import EpisodeBatch
-from Regressor import GaussianMLPBaseline
+from Regressor import Regressor
 from garage.replay_buffer import ReplayBuffer
 
 
@@ -70,16 +70,19 @@ class SurpriseWorker(Worker):
         self.surprisal_bonus = worker_args["surprise"]
         self.student = worker_args["student"]
         self.eta0 = worker_args["eta0"]
-        
+   
         
 
     def SurpriseBonus(self, action, reward,  observations, last_observations):
-        print(last_observations)
-        batch = torch.cat([last_observations, action])
+        new_states = torch.tensor(observations)
+        
+        batch = torch.hstack([torch.tensor(last_observations), torch.tensor(action)])
+
         log = self.regressor.get_log_prob(batch, observations)
         print("log likelihood" +  str(log))
-        eta1 = self.eta0 / np.abs(reward)
-        return reward
+        eta1 = self.eta0 / np.mean(np.abs(reward))
+        surprise_reward = eta1*log 
+        return surprise_reward
     
     
     def worker_init(self):
@@ -116,7 +119,6 @@ class SurpriseWorker(Worker):
         """
         self.env, _ = _apply_env_update(self.env, env_update)
         #self.replay = ReplayBuffer(env_spec = self.env.spec, size_in_transitions= 10000, time_horizon = 500)
-        self.regressor = GaussianMLPBaseline(env_spec = self.env.spec)
     def start_episode(self):
         """Begin a new episode."""
         self._eps_length = 0
@@ -135,7 +137,9 @@ class SurpriseWorker(Worker):
         if self._eps_length < self._max_episode_length:
             a, agent_info = self.agent.get_action(self._prev_obs)
             es = self.env.step(a)
+    
             self._observations.append(self._prev_obs)
+            
             self._env_steps.append(es)
             for k, v in agent_info.items():
                 self._agent_infos[k].append(v)
@@ -155,25 +159,35 @@ class SurpriseWorker(Worker):
                 to collect_episode().
         """
         observations = self._observations
+        #new_states = torch.tensor(observations)
         self._observations = []
         last_observations = self._last_observations
+        #states = torch.tensor(last_observations)
         self._last_observations = []
 
         actions = []
         rewards = []
+        states = []
         env_infos = defaultdict(list)
         step_types = []
 
         for es in self._env_steps:
-            if self.surprisal_bonus != None: 
-                reward = self.SurpriseBonus(es.action, es.reward,  observations, last_observations)
-                rewards.append(reward)
-            else: 
-                rewards.append(es.reward)
+            rewards.append(es.reward)
             actions.append(es.action)
+            states.append(es.observation)
             step_types.append(es.step_type)
             for k, v in es.env_info.items():
                 env_infos[k].append(v)
+        states = torch.tensor(states)       
+        new_states = states[1:,:]
+        states = states[:-1, :]
+        if self.surprisal_bonus != None: 
+            
+            state_action = torch.hstack([states, torch.tensor(actions)[:-1]])
+            self.regressor = Regressor(state_action.shape[1], new_states.shape[1], 32)
+            self.regressor.fit(state_action, new_states)
+            #rewards = self.SurpriseBonus(actions, rewards, observations, last_observations)
+            pass
         self._env_steps = []
 
         agent_infos = self._agent_infos
@@ -211,7 +225,7 @@ class SurpriseWorker(Worker):
         while not self.step_episode():
             pass
         episode = self.collect_episode()
-        print(episode)
+        #print(episode)
         #self.replay.store_episode(episode)
         
         return episode
