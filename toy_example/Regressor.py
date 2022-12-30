@@ -37,6 +37,19 @@ class GaussianMLP(nn.Module):
 
         return output
 
+    def get_mean_std(self, x):
+        with torch.no_grad():
+            output = self.forward(x)
+
+            if output.dim() == 2:
+                mean = output[:, :self.output_dim]
+                logvar = output[:, self.output_dim:]
+            else:
+                mean = output[:self.output_dim]
+                logvar = output[self.output_dim:]
+
+        return mean, 0.5*logvar
+
     def get_distribution(self, x):
         with torch.no_grad():
             output = self.forward(x)
@@ -161,7 +174,11 @@ class Regressor():
         prediction = self.model(x_inp)
         return prediction 
     
-    def log_prob(self, x_inp): 
-        log_prob = 0
-        return log_prob
+    def log_likelihood(self, x_inp, y): 
+        mean, logstd = self.model.get_mean_std(x_inp)
+        z = (y - mean) / np.exp(logstd)
+        log_likelihood = - np.sum(logstd, axis=-1) - \
+                            0.5 * np.sum(np.square(z), axis=-1) - \
+                            0.5 * mean.shape[-1] * np.log(2 * np.pi)
+        return log_likelihood
         
