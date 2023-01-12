@@ -125,9 +125,9 @@ class PNNLoss_Gaussian(nn.Module):
         # Initializes parameterss
         d2 = output.size()[1]
         d = torch.tensor(d2 / 2, dtype=torch.int32)
-        mean = output[:, :d]
+        mean = output[:, :d2]
+        
         logvar = output[:, d:]
-        print(logvar.shape)
         # Caps max and min log to avoid NaNs
         logvar = max_logvar - self.softplus_raw(max_logvar - logvar)
         logvar = min_logvar + self.softplus_raw(logvar - min_logvar)
@@ -162,11 +162,19 @@ class Regressor():
     def fit(self, x_inp, out_real): 
         optimizer = torch.optim.Adam(params = self.model.parameters(), lr = 1e-4)
         
-        for i in range(100): 
+        for i in range(50): 
             out = self.model(x_inp)
-            max_logvar = out[:,3]
-            min_logvar = out[:,2]
-            loss = self.loss(out[:,:1], out_real, max_logvar, min_logvar)
+            log_var = out[:,2:]
+            max_indx = torch.argmax(log_var,dim = 1,  keepdim = True)
+            min_indx = torch.argmin(log_var, dim = 1, keepdim = True)
+            
+            max_logvar = torch.zeros([log_var.shape[0], 1])
+            min_logvar = torch.zeros([log_var.shape[0], 1])
+            for i in range(log_var.shape[0]):
+                max_logvar[i] = log_var[i, max_indx[i]]
+                min_logvar[i] = log_var[i, min_indx[i]]
+                
+            loss = self.loss(out[:,:2], out_real, max_logvar, min_logvar)
             loss.backward()
             optimizer.step()
             
@@ -177,8 +185,7 @@ class Regressor():
     def log_likelihood(self, x_inp, y): 
         mean, logstd = self.model.get_mean_std(x_inp)
         z = (y - mean) / np.exp(logstd)
-        log_likelihood = - np.sum(logstd, axis=-1) - \
-                            0.5 * np.sum(np.square(z), axis=-1) - \
+        log_likelihood = - torch.sum(logstd, dim = 1, keepdim = True) - \
+                            0.5 * torch.sum(np.square(z), dim = 1, keepdim = True) - \
                             0.5 * mean.shape[-1] * np.log(2 * np.pi)
         return log_likelihood
-        
