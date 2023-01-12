@@ -67,22 +67,23 @@ class SurpriseWorker(Worker):
         self._eps_length = 0
         self._episode_infos = defaultdict(list)
         self.worker_init()
-        self.surprisal_bonus = worker_args["surprise"]
-        self.student = worker_args["student"]
-        self.eta0 = worker_args["eta0"]
-   
+        self.surprisal_bonus = None
+        if worker_args != {}: 
+            self.surprisal_bonus = worker_args["surprise"]
+            self.student = worker_args["student"]
+            self.eta0 = worker_args["eta0"]
+            
         
 
-    def SurpriseBonus(self, action, reward,  observations, last_observations):
-        new_states = torch.tensor(observations)
+    def SurpriseBonus(self,reward,  new_states, states_actions):
         
-        batch = torch.hstack([torch.tensor(last_observations), torch.tensor(action)])
 
-        log = self.regressor.get_log_prob(batch, observations)
-        print("log likelihood" +  str(log))
-        eta1 = self.eta0 / np.mean(np.abs(reward))
+        log = self.regressor.log_likelihood(states_actions, new_states)
+        eta1 = self.eta0 / np.max([1.0, np.mean(np.abs(reward))])
         surprise_reward = eta1*log 
-        return surprise_reward
+      
+        new_reward = torch.tensor(reward) - surprise_reward.reshape(surprise_reward.shape[0])
+        return new_reward
     
     
     def worker_init(self):
@@ -125,7 +126,8 @@ class SurpriseWorker(Worker):
         self._prev_obs, episode_info = self.env.reset()
         for k, v in episode_info.items():
             self._episode_infos[k].append(v)
-
+            
+        self.first_state = self._prev_obs
         self.agent.reset()
 
     def step_episode(self):
@@ -168,9 +170,10 @@ class SurpriseWorker(Worker):
         actions = []
         rewards = []
         states = []
+        states.append(self.first_state)
         env_infos = defaultdict(list)
         step_types = []
-
+        
         for es in self._env_steps:
             rewards.append(es.reward)
             actions.append(es.action)
@@ -178,15 +181,15 @@ class SurpriseWorker(Worker):
             step_types.append(es.step_type)
             for k, v in es.env_info.items():
                 env_infos[k].append(v)
-        states = torch.tensor(states)       
-        new_states = states[1:,:]
-        states = states[:-1, :]
-        if self.surprisal_bonus != None: 
-            
-            state_action = torch.hstack([states, torch.tensor(actions)[:-1]])
+        
+        if self.surprisal_bonus == True: 
+            states = torch.tensor(states)       
+            new_states = states[1:,:]
+            states = states[:-1, :]
+            state_action = torch.hstack([states, torch.tensor(actions)])
             self.regressor = Regressor(state_action.shape[1], new_states.shape[1], 32)
             self.regressor.fit(state_action, new_states)
-            #rewards = self.SurpriseBonus(actions, rewards, observations, last_observations)
+            rewards = self.SurpriseBonus(rewards, new_states, state_action)
             pass
         self._env_steps = []
 
