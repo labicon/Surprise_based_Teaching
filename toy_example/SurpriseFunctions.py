@@ -68,21 +68,25 @@ class SurpriseWorker(Worker):
         self._episode_infos = defaultdict(list)
         self.worker_init()
         self.surprisal_bonus = None
+
         if worker_args != {}: 
             self.surprisal_bonus = worker_args["surprise"]
             self.student = worker_args["student"]
+            self.student_sampler = worker_args["replay"]
             self.eta0 = worker_args["eta0"]
             
         
 
-    def SurpriseBonus(self,reward,  new_states, states_actions):
+    def SurpriseBonus(self,teacher_reward, student_reward, new_states, states_actions):
         
 
-        log = self.regressor.log_likelihood(states_actions, new_states)
-        eta1 = self.eta0 / np.max([1.0, np.mean(np.abs(reward))])
-        surprise_reward = eta1*log 
-      
-        new_reward = torch.tensor(reward) - surprise_reward.reshape(surprise_reward.shape[0])
+        teacher_log = self.regressor.log_likelihood(states_actions, new_states)
+        student_log = self.student_regressor.log_likelihood(states_actions, new_states)
+        eta1 = self.eta0 / np.max([1.0, np.mean(np.abs(teacher_reward))])
+        eta2 = self.eta0 / np.max([1.0, np.mean(np.abs(student_reward))])
+        surprise_reward = -eta1*teacher_log + eta2*(teacher_log - student_log) 
+        #surprise_reward = -eta1*teacher_log
+        new_reward = torch.tensor(teacher_reward) + surprise_reward.reshape(surprise_reward.shape[0])
         return new_reward
     
     
@@ -167,30 +171,46 @@ class SurpriseWorker(Worker):
         #states = torch.tensor(last_observations)
         self._last_observations = []
 
-        actions = []
-        rewards = []
-        states = []
-        states.append(self.first_state)
+        self.actions = []
+        self.rewards = []
+        self.states = []
+        self.states.append(self.first_state)
         env_infos = defaultdict(list)
         step_types = []
         
         for es in self._env_steps:
-            rewards.append(es.reward)
-            actions.append(es.action)
-            states.append(es.observation)
+            self.rewards.append(es.reward)
+            self.actions.append(es.action)
+            self.states.append(es.observation)
             step_types.append(es.step_type)
             for k, v in es.env_info.items():
                 env_infos[k].append(v)
         
         if self.surprisal_bonus == True: 
-            states = torch.tensor(states)       
-            new_states = states[1:,:]
-            states = states[:-1, :]
-            state_action = torch.hstack([states, torch.tensor(actions)])
-            self.regressor = Regressor(state_action.shape[1], new_states.shape[1], 32)
-            self.regressor.fit(state_action, new_states)
-            rewards = self.SurpriseBonus(rewards, new_states, state_action)
-            pass
+            self.states = torch.tensor(self.states)       
+            self.new_states = self.states[1:,:]
+            self.states = self.states[:-1, :]
+            self.state_action = torch.hstack([self.states, torch.tensor(self.actions)])
+            
+            sample = self.student_sampler.obtain_samples(itr = 1, num_samples=500, agent_update = self.student )
+            st_obs = sample.observations
+            st_n_obs = sample.next_observations
+            st_act = sample.actions
+            st_rew = sample.rewards
+          
+            student_new_state = torch.tensor(st_n_obs)
+            student_state = torch.tensor(st_obs)
+            student_action = torch.tensor(st_act)
+            student_state_action = torch.hstack([student_state, student_action])
+            student_reward = st_rew.reshape(st_rew.shape[0])
+            self.student_regressor = Regressor(student_state_action.shape[1], student_new_state.shape[1], 32)
+            self.student_regressor.fit(student_state_action, student_new_state) 
+            
+            #student_reward = 0 
+            self.regressor = Regressor(self.state_action.shape[1], self.new_states.shape[1], 32)
+            self.regressor.fit(self.state_action, self.new_states)
+            self.rewards = self.SurpriseBonus(self.rewards, student_reward, self.new_states, self.state_action)
+            
         self._env_steps = []
 
         agent_infos = self._agent_infos
@@ -212,8 +232,8 @@ class SurpriseWorker(Worker):
                             episode_infos=episode_infos,
                             observations=np.asarray(observations),
                             last_observations=np.asarray(last_observations),
-                            actions=np.asarray(actions),
-                            rewards=np.asarray(rewards),
+                            actions=np.asarray(self.actions),
+                            rewards=np.asarray(self.rewards),
                             step_types=np.asarray(step_types, dtype=StepType),
                             env_infos=dict(env_infos),
                             agent_infos=dict(agent_infos),
