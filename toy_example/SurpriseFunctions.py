@@ -421,7 +421,7 @@ class SurpriseWorker(Worker):
             for k, v in es.env_info.items():
                 env_infos[k].append(v)
         with tabular.prefix( 'Teacher/'):
-            tabular.record('Extrinsic Rewards', np.mean(ext_rewards))
+            tabular.record('Extrinsic Rewards', np.sum(ext_rewards))
             
         if self.surprisal_bonus == True: 
             self.states = torch.tensor(self.states)       
