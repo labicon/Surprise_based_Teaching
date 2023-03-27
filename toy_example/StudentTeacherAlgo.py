@@ -13,7 +13,7 @@ from garage.torch.optimizers import (ConjugateGradientOptimizer,
                                      OptimizerWrapper)
 import collections
 import copy
-
+from garage import EpisodeBatch, StepType
 from dowel import tabular
 import numpy as np
 import torch
@@ -25,6 +25,52 @@ from garage.np.algos import RLAlgorithm
 from garage.torch import compute_advantages, filter_valids
 from garage.torch.optimizers import OptimizerWrapper
 
+
+def surp_log_performance(itr, batch, discount, prefix='Evaluation'):
+    """Evaluate the performance of an algorithm on a batch of episodes.
+
+    Args:
+        itr (int): Iteration number.
+        batch (EpisodeBatch): The episodes to evaluate with.
+        discount (float): Discount value, from algorithm's property.
+        prefix (str): Prefix to add to all logged keys.
+
+    Returns:
+        numpy.ndarray: Undiscounted returns.
+
+    """
+    returns = []
+    undiscounted_returns = []
+    termination = []
+    success = []
+    ext_reward = []
+    for eps in batch.split():
+        returns.append(discount_cumsum(eps.rewards, discount))
+        undiscounted_returns.append(sum(eps.rewards))
+        ext_reward.append(eps.extrinsic_rewards)
+        termination.append(
+            float(
+                any(step_type == StepType.TERMINAL
+                    for step_type in eps.step_types)))
+        if 'success' in eps.env_infos:
+            success.append(float(eps.env_infos['success'].any()))
+
+    average_discounted_return = np.mean([rtn[0] for rtn in returns])
+
+    with tabular.prefix(prefix + '/'):
+        tabular.record('Iteration', itr)
+        tabular.record('NumEpisodes', len(returns))
+        tabular.record('Average Extrinsic Reward', np.mean(ext_reward))
+        tabular.record('AverageDiscountedReturn', average_discounted_return)
+        tabular.record('AverageReturn', np.mean(undiscounted_returns))
+        tabular.record('StdReturn', np.std(undiscounted_returns))
+        tabular.record('MaxReturn', np.max(undiscounted_returns))
+        tabular.record('MinReturn', np.min(undiscounted_returns))
+        tabular.record('TerminationRate', np.mean(termination))
+        if success:
+            tabular.record('SuccessRate', np.mean(success))
+
+    return undiscounted_returns
 class Teacher(VPG):
     """Trust Region Policy Optimization (TRPO).
 
@@ -445,6 +491,12 @@ class Curriculum(VPG):
                 eps = trainer.obtain_episodes(trainer.step_itr)
                 last_return = self.teacher._train_once(trainer.step_itr, eps)
                 trainer.step_itr += 1
+            
+            if self._eval_env is not None:
+                log_performance(_,
+                                obtain_evaluation_episodes(
+                                    self.teacher_policy, self._eval_env),
+                                discount=1.0, prefix = 'TeacherEval')
                 
             #self.teacher_policy = trainer.policy 
             self._source = self.teacher_policy 
@@ -452,6 +504,7 @@ class Curriculum(VPG):
             self.policy = self.learner
             #trainer._sampler = self.student_sampler
             self._sampler = self.student_sampler
+            
             if self._eval_env is not None:
                 log_performance(_,
                                 obtain_evaluation_episodes(
@@ -570,6 +623,3 @@ class Curriculum(VPG):
             # We already checked that we have a StochasticPolicy as the learner
             action_dist, _ = learner_output
             return -torch.mean(action_dist.log_prob(expert_actions))
-
-    
-    
