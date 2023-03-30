@@ -27,14 +27,85 @@ import copy
 from collections import defaultdict
 from garage import EpisodeBatch
 import SurpriseFunctions
-from SurpriseFunctions import SurpriseWorkerFactory, CustomSampler
+from SurpriseFunctions import SurpriseWorkerFactory, CustomSampler, SurpriseWorker
 from garage.replay_buffer import ReplayBuffer
 from ppo_dis import PPO_Discrete
 from SparseRewardMountainCar import Continuous_MountainCarEnv
 from setuptools import setup 
 from StudentTeacherAlgo import Curriculum 
+from surprise_gaussian_mlp_policy import Surprise_GaussianMLPPolicy
+@wrap_experiment
+def _PPO(ctxt=None, seed=1):
+    """Train PPO with InvertedDoublePendulum-v2 environment.
 
+    Args:
+        ctxt (garage.experiment.ExperimentContext): The experiment
+            configuration used by Trainer to create the snapshotter.
+        seed (int): Used to seed the random number generator to produce
+            determinism.
 
+    """
+    set_seed(seed)
+    #env = GymEnv('MountainCarContinuous-v0')
+    env = GymEnv('Sparse_MountainCar-v0')
+    #env = GymEnv('CartPole-v1')
+    trainer = Trainer(ctxt)
+    #replay_buffer = ReplayBuffer(env_spec = env.spec, size_in_transitions= 10000, time_horizon = 500)
+    
+    teacher_policy = Surprise_GaussianMLPPolicy(env.spec,
+                               hidden_sizes=[64, 64],
+                               hidden_nonlinearity=torch.tanh,
+                               output_nonlinearity=None)
+
+    
+    value_function = GaussianMLPValueFunction(env_spec=env.spec,
+                                              hidden_sizes=(32, 32),
+                                              hidden_nonlinearity=torch.tanh,
+                                              output_nonlinearity=None)
+    
+ 
+    
+    surprise = {"surprise": True, "student": None, "eta0": 0.05, "replay": None}
+    
+    teacher_sampler = CustomSampler(envs = env,  
+                           agents = teacher_policy, 
+                           worker_factory = SurpriseWorkerFactory, 
+                           worker_args = surprise, 
+                           max_episode_length = 500)
+    
+    
+
+    from garage.experiment import Snapshotter
+
+    snapshotter = Snapshotter()
+    data = snapshotter.load('./data/local/experiment/_PPO_16')
+    policy = data['algo'].policy
+    policy.training = False 
+    print(policy)
+    algo = PPO(env_spec = env.spec, 
+               policy=policy,
+               value_function=value_function,
+               discount=0.995,
+               gae_lambda= .95,
+               center_adv=False, 
+               sampler = teacher_sampler)
+    
+  
+    trainer.setup( algo = algo, env = env)
+    trainer.train(n_epochs = 1, batch_size = 1000)
+    '''
+    algo = PPO(env_spec = env.spec, 
+               policy=teacher_policy,
+               value_function=value_function,
+               discount=0.995,
+               gae_lambda= .95,
+               center_adv=False, 
+               sampler = teacher_sampler)
+    
+  
+    trainer.setup( algo = algo, env = env)
+    trainer.train(n_epochs = 1, batch_size = 1000)
+    '''
 
 @wrap_experiment
 def _TRPO(ctxt=None, seed=1):
@@ -54,20 +125,20 @@ def _TRPO(ctxt=None, seed=1):
     trainer = Trainer(ctxt)
     #replay_buffer = ReplayBuffer(env_spec = env.spec, size_in_transitions= 10000, time_horizon = 500)
     
-    teacher_policy = GaussianMLPPolicy(env.spec,
-                               hidden_sizes=[64, 64],
+    teacher_policy = Surprise_GaussianMLPPolicy(env.spec,
+                               hidden_sizes=[128, 128],
                                hidden_nonlinearity=torch.tanh,
                                output_nonlinearity=None)
 
     
     value_function = GaussianMLPValueFunction(env_spec=env.spec,
-                                              hidden_sizes=(32, 32),
+                                              hidden_sizes=(128, 128),
                                               hidden_nonlinearity=torch.tanh,
                                               output_nonlinearity=None)
     
  
     
-    surprise = {"surprise": None, "student": None, "eta0": 0.05, "replay": None}
+    surprise = {"surprise": True, "student": None, "eta0": 1.0, "replay": None}
     
     teacher_sampler = CustomSampler(envs = env,  
                            agents = teacher_policy, 
@@ -82,7 +153,8 @@ def _TRPO(ctxt=None, seed=1):
     algo = TRPO(env_spec = env.spec, 
                policy=teacher_policy,
                value_function=value_function,
-               discount=0.99,
+               discount=0.995,
+               gae_lambda= .95,
                center_adv=False, 
                sampler = teacher_sampler)
     
@@ -111,13 +183,13 @@ def _BC(ctxt=None, seed=1):
     
     
     student_policy = GaussianMLPPolicy(env.spec,
-                               hidden_sizes=[64, 64],
+                               hidden_sizes=[128, 128],
                                hidden_nonlinearity=torch.tanh,
                                output_nonlinearity=None)
     
     
     value_function = GaussianMLPValueFunction(env_spec=env.spec,
-                                              hidden_sizes=(32, 32),
+                                              hidden_sizes=(128,128),
                                               hidden_nonlinearity=torch.tanh,
                                               output_nonlinearity=None)
     
@@ -126,24 +198,25 @@ def _BC(ctxt=None, seed=1):
                            worker_factory = SurpriseWorkerFactory,  
                            max_episode_length = 500)
     
-    surprise = {"surprise": True, "student": None, "eta0": 0.05, "replay": None}
+    surprise = {"surprise": True, "student": student_policy, "eta0": 0.01, "replay": student_sampler}
     
-    
-    
-    
-    #student_sampler = Sampler(envs = env, 
-    #                          agents = student_policy, 
-    #                          max_episiode_length = 500)
+    '''
     
     from garage.experiment import Snapshotter
 
     snapshotter = Snapshotter()
     data = snapshotter.load('./data/local/experiment/ppo_1')
     policy = data['algo'].policy
+    '''
+    policy = Surprise_GaussianMLPPolicy(env.spec,
+                               hidden_sizes=[128, 128],
+                               hidden_nonlinearity=torch.tanh,
+                               output_nonlinearity=None)
     
     teacher_sampler = CustomSampler(envs = env,  
                            agents = policy, 
-                           worker_factory = SurpriseWorkerFactory, 
+                           worker_factory = SurpriseWorkerFactory,
+                           worker_class = SurpriseWorker,
                            worker_args = surprise, 
                            max_episode_length = 500)
  
@@ -175,13 +248,11 @@ def student_teacher(ctxt=None, seed=1):
     #env = GymEnv('MountainCarContinuous-v0')
     env = GymEnv('Sparse_MountainCar-v0')
     #env = GymEnv('CartPole-v1')
-    teacher_trainer = Trainer(ctxt)
-    student_trainer = Trainer(ctxt)
     trainer = Trainer(ctxt)
     #replay_buffer = ReplayBuffer(env_spec = env.spec, size_in_transitions= 10000, time_horizon = 500)
     
     teacher_policy = GaussianMLPPolicy(env.spec,
-                               hidden_sizes=[64, 64],
+                               hidden_sizes=[128, 128],
                                hidden_nonlinearity=torch.tanh,
                                output_nonlinearity=None)
     student_policy = GaussianMLPPolicy(env.spec,
@@ -191,7 +262,7 @@ def student_teacher(ctxt=None, seed=1):
     
     
     value_function = GaussianMLPValueFunction(env_spec=env.spec,
-                                              hidden_sizes=(32, 32),
+                                              hidden_sizes=(128, 128),
                                               hidden_nonlinearity=torch.tanh,
                                               output_nonlinearity=None)
     
@@ -204,37 +275,24 @@ def student_teacher(ctxt=None, seed=1):
     
     teacher_sampler = CustomSampler(envs = env,  
                            agents = teacher_policy, 
-                           worker_factory = SurpriseWorkerFactory, 
+                           worker_factory = SurpriseWorkerFactory,
+                           worker_class = SurpriseWorker, 
                            worker_args = surprise, 
                            max_episode_length = 500)
     
     
-    #student_sampler = Sampler(envs = env, 
-    #                          agents = student_policy, 
-    #                          max_episiode_length = 500)
-    
+   
+    '''
     from garage.experiment import Snapshotter
 
     snapshotter = Snapshotter()
     data = snapshotter.load('./data/local/experiment/ppo_1')
     policy = data['algo'].policy
+    '''
     
     
-    '''
-    algo = PPO(env_spec=env.spec,
-               policy=policy,
-               value_function=value_function,
-               discount=0.99,
-               center_adv=False, 
-               sampler = sampler)
-    '''
-    algo = BC(env_spec = env.spec, 
-              learner = student_policy, 
-              source = policy, 
-              batch_size= 1000, 
-              sampler = teacher_sampler)
     
-    '''
+    
     algo = Curriculum(env_spec = env.spec,
                       teacher_policy = teacher_policy,
                       teacher_value_function = value_function, 
@@ -242,17 +300,37 @@ def student_teacher(ctxt=None, seed=1):
                       teacher_sampler = teacher_sampler,
                       student_sampler = student_sampler,
                       batch_size = 1000)
-    '''
+    
     trainer.setup( algo = algo, env = env)
     trainer.train(n_epochs = 200, batch_size = 1000)
-    
+  
+student_teacher(seed=1)
+student_teacher(seed=1)
 #student_teacher(seed=1)
+student_teacher(seed=2)
+student_teacher(seed=2)
+#student_teacher(seed=2)
+student_teacher(seed=3)
+student_teacher(seed=3)
+#student_teacher(seed=3)
+'''
+_TRPO(seed =1 )
+_TRPO(seed =1 )
+_TRPO(seed =1 )
+_TRPO(seed = 2)
+_TRPO(seed = 2)
+_TRPO(seed = 2)
+_TRPO(seed = 3)
+_TRPO(seed = 3)
+_TRPO(seed = 3)
 
+
+'''
 '''
 from garage.experiment import Snapshotter
 
 snapshotter = Snapshotter()
-data = snapshotter.load('./data/local/experiment/student_teacher_3')
+data = snapshotter.load('./data/local/experiment/_TRPO_57')
 policy = data['algo'].policy
 # You can also access other components of the experiment
 env = data['env']
