@@ -271,7 +271,7 @@ def identity_function(value):
     """
     return value
 
-class SurpriseWorkerFactory:
+class SOMaxSurpriseWorkerFactory:
     """Constructs workers for Samplers.
     The intent is that this object should be sufficient to avoid subclassing
     the sampler. Instead of subclassing the sampler for e.g. a specific
@@ -358,7 +358,7 @@ class SurpriseWorkerFactory:
     
     
     
-class CustomSampler(Sampler):
+class SOCustomSampler(Sampler):
     """Sampler that runs workers in the main process.
     This is probably the simplest possible sampler. It's called the "Local"
     sampler because it runs everything in the same process and thread as where
@@ -407,10 +407,10 @@ class CustomSampler(Sampler):
         if worker_factory is None and max_episode_length is None:
             raise TypeError('Must construct a sampler from WorkerFactory or'
                             'parameters (at least max_episode_length)')
-        if isinstance(worker_factory, SurpriseWorkerFactory):
+        if isinstance(worker_factory, SOMaxSurpriseWorkerFactory):
             self._factory = worker_factory
         else:
-            self._factory = SurpriseWorkerFactory(
+            self._factory = SOMaxSurpriseWorkerFactory(
                 max_episode_length=max_episode_length,
                 is_tf_worker=is_tf_worker,
                 seed=seed,

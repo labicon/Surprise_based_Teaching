@@ -27,11 +27,11 @@ from collections import defaultdict
 from garage import EpisodeBatch
 import SurpriseFunctions
 from SurpriseFunctions import SurpriseWorkerFactory, CustomSampler, SurpriseWorker
-from MaxSurpriseFunctions import MaxSurpriseWorkerFactory, MaxSurpriseWorker
-from StudentOnlyMaxSurpriseFunctions import SOMaxSurpriseWorkerFactory, SOMaxSurpriseWorker
+from MaxSurpriseFunctions import MaxSurpriseWorkerFactory, MaxCustomSampler, MaxSurpriseWorker
+from StudentOnlyMaxSurpriseFunctions import SOMaxSurpriseWorkerFactory, SOCustomSampler, SOMaxSurpriseWorker
 
 from garage.replay_buffer import ReplayBuffer
-from SparseRewardMountainCar import Continuous_MountainCarEnv
+from SparseRewardMountainCar import SparseContinuous_MountainCarEnv
 from setuptools import setup 
 from StudentTeacherAlgo import Curriculum 
 
@@ -68,7 +68,7 @@ def Max_TRPOMC(ctxt=None, seed=1):
     
     surprise = {"surprise": True, "student": None, "eta0": 0.02, "replay": None}
     
-    teacher_sampler = CustomSampler(envs = env,  
+    teacher_sampler = MaxCustomSampler(envs = env,  
                            agents = teacher_policy, 
                            worker_factory = MaxSurpriseWorkerFactory, 
                            worker_args = surprise, 
