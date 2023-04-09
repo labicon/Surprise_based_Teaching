@@ -84,6 +84,7 @@ class SurpriseWorker(Worker):
         eta1 = self.eta0 / np.max([1.0, np.mean(np.abs(teacher_reward))])
         eta2 = self.eta0 / np.max([1.0, np.mean(np.abs(student_reward))])
         surprise_reward = -eta1*teacher_log + 2*eta2*(teacher_log - student_log) 
+        
         new_reward = torch.tensor(teacher_reward) + surprise_reward.reshape(surprise_reward.shape[0])
         return new_reward
     
@@ -131,7 +132,8 @@ class SurpriseWorker(Worker):
             
         self.first_state = self._prev_obs
         self.agent.reset()
-
+        return self.env._step_cnt
+    
     def step_episode(self):
         """Take a single time-step in the current episode.
         Returns:
@@ -163,8 +165,10 @@ class SurpriseWorker(Worker):
                 to collect_episode().
         """
         observations = self._observations
+        #new_states = torch.tensor(observations)
         self._observations = []
         last_observations = self._last_observations
+        #states = torch.tensor(last_observations)
         self._last_observations = []
 
         self.actions = []
@@ -182,13 +186,20 @@ class SurpriseWorker(Worker):
             step_types.append(es.step_type)
             for k, v in es.env_info.items():
                 env_infos[k].append(v)
-
+        #with tabular.prefix( 'Teacher/'):
+            #tabular.record('Extrinsic Rewards', np.sum(ext_rewards))
             
         if self.surprisal_bonus == True: 
             self.states = torch.tensor(self.states)       
             self.new_states = self.states[1:,:]
             self.states = self.states[:-1, :]
-            self.state_action = torch.hstack([self.states, torch.tensor(self.actions)])
+            
+            actions = torch.tensor(self.actions)
+            if actions.dim() == 1: 
+            
+                actions = actions.unsqueeze(1)
+            
+            self.state_action = torch.hstack([self.states, actions])
             
             sample = self.student_sampler.obtain_samples(itr = 1, num_samples=500, agent_update = self.student )
             st_obs = sample.observations
@@ -199,12 +210,18 @@ class SurpriseWorker(Worker):
             student_new_state = torch.tensor(st_n_obs)
             student_state = torch.tensor(st_obs)
             student_action = torch.tensor(st_act)
+            actions = torch.tensor(self.actions)
+            if student_action.dim() == 1: 
+                student_action = student_action.unsqueeze(1)
+            
             student_state_action = torch.hstack([student_state, student_action])
-
+            #student_reward = torch.tensor(st_rew)
+            #print(student_reward.shape)
             student_reward = st_rew.reshape(st_rew.shape[0])
             self.student_regressor = Regressor(student_state_action.shape[1], student_new_state.shape[1], 32)
             self.student_regressor.fit(student_state_action, student_new_state) 
             
+            #student_reward = 0 
             self.regressor = Regressor(self.state_action.shape[1], self.new_states.shape[1], 32)
             self.regressor.fit(self.state_action, self.new_states)
             self.rewards = self.SurpriseBonus(self.rewards, student_reward, self.new_states, self.state_action)
@@ -246,7 +263,8 @@ class SurpriseWorker(Worker):
         while not self.step_episode():
             pass
         episode = self.collect_episode()
-
+        #print(episode)
+        #self.replay.store_episode(episode)
         
         return episode
 

@@ -80,12 +80,9 @@ class MaxSurpriseWorker(Worker):
         
 
         teacher_log = self.regressor.log_likelihood(states_actions, new_states)
-        #student_log = self.student_regressor.log_likelihood(states_actions, new_states)
         eta1 = self.eta0 / np.max([1.0, np.mean(np.abs(teacher_reward))])
-        #eta2 = self.eta0 / np.max([1.0, np.mean(np.abs(student_reward))])
-        #surprise_reward = -eta1*teacher_log + 2*eta2*(teacher_log - student_log) 
+
         surprise_reward = -eta1*teacher_log
-        #surprise_reward = eta2*(teacher_log - student_log) 
         new_reward = torch.tensor(teacher_reward) + surprise_reward.reshape(surprise_reward.shape[0])
         return new_reward
     
@@ -193,24 +190,13 @@ class MaxSurpriseWorker(Worker):
             self.states = torch.tensor(self.states)       
             self.new_states = self.states[1:,:]
             self.states = self.states[:-1, :]
-            self.state_action = torch.hstack([self.states, torch.tensor(self.actions)])
-            '''
-            sample = self.student_sampler.obtain_samples(itr = 1, num_samples=500, agent_update = self.student )
-            st_obs = sample.observations
-            st_n_obs = sample.next_observations
-            st_act = sample.actions
-            st_rew = sample.rewards
-          
-            student_new_state = torch.tensor(st_n_obs)
-            student_state = torch.tensor(st_obs)
-            student_action = torch.tensor(st_act)
-            student_state_action = torch.hstack([student_state, student_action])
-            #student_reward = torch.tensor(st_rew)
-            #print(student_reward.shape)
-            student_reward = st_rew.reshape(st_rew.shape[0])
-            self.student_regressor = Regressor(student_state_action.shape[1], student_new_state.shape[1], 32)
-            self.student_regressor.fit(student_state_action, student_new_state) 
-            '''
+            actions = torch.tensor(self.actions)
+            if actions.dim() == 1: 
+            
+                actions = actions.unsqueeze(1)
+            
+            self.state_action = torch.hstack([self.states, actions])
+            
             student_reward = 0 
             self.regressor = Regressor(self.state_action.shape[1], self.new_states.shape[1], 32)
             self.regressor.fit(self.state_action, self.new_states)
@@ -273,7 +259,7 @@ def identity_function(value):
     """
     return value
 
-class SurpriseWorkerFactory:
+class MaxSurpriseWorkerFactory:
     """Constructs workers for Samplers.
     The intent is that this object should be sufficient to avoid subclassing
     the sampler. Instead of subclassing the sampler for e.g. a specific
@@ -360,7 +346,7 @@ class SurpriseWorkerFactory:
     
     
     
-class CustomSampler(Sampler):
+class MaxCustomSampler(Sampler):
     """Sampler that runs workers in the main process.
     This is probably the simplest possible sampler. It's called the "Local"
     sampler because it runs everything in the same process and thread as where
@@ -409,10 +395,10 @@ class CustomSampler(Sampler):
         if worker_factory is None and max_episode_length is None:
             raise TypeError('Must construct a sampler from WorkerFactory or'
                             'parameters (at least max_episode_length)')
-        if isinstance(worker_factory, SurpriseWorkerFactory):
+        if isinstance(worker_factory, MaxSurpriseWorkerFactory):
             self._factory = worker_factory
         else:
-            self._factory = SurpriseWorkerFactory(
+            self._factory = MaxSurpriseWorkerFactory(
                 max_episode_length=max_episode_length,
                 is_tf_worker=is_tf_worker,
                 seed=seed,

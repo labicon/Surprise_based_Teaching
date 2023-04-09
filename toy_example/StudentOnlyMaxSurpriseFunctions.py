@@ -192,7 +192,12 @@ class SOMaxSurpriseWorker(Worker):
             self.states = torch.tensor(self.states)       
             self.new_states = self.states[1:,:]
             self.states = self.states[:-1, :]
-            self.state_action = torch.hstack([self.states, torch.tensor(self.actions)])
+            
+            actions = torch.tensor(self.actions)
+            if actions.dim() == 1: 
+                actions = actions.unsqueeze(1)
+            
+            self.state_action = torch.hstack([self.states, actions])
             
             sample = self.student_sampler.obtain_samples(itr = 1, num_samples=500, agent_update = self.student )
             st_obs = sample.observations
@@ -203,7 +208,10 @@ class SOMaxSurpriseWorker(Worker):
             student_new_state = torch.tensor(st_n_obs)
             student_state = torch.tensor(st_obs)
             student_action = torch.tensor(st_act)
-            student_state_action = torch.hstack([student_state, student_action])
+            if student_action.dim() == 1: 
+                student_actions = student_action.unsqueeze(1)
+            
+            student_state_action = torch.hstack([student_state, student_actions])
             #student_reward = torch.tensor(st_rew)
             #print(student_reward.shape)
             student_reward = st_rew.reshape(st_rew.shape[0])
@@ -271,7 +279,7 @@ def identity_function(value):
     """
     return value
 
-class SurpriseWorkerFactory:
+class SOMaxSurpriseWorkerFactory:
     """Constructs workers for Samplers.
     The intent is that this object should be sufficient to avoid subclassing
     the sampler. Instead of subclassing the sampler for e.g. a specific
@@ -358,7 +366,7 @@ class SurpriseWorkerFactory:
     
     
     
-class CustomSampler(Sampler):
+class SOCustomSampler(Sampler):
     """Sampler that runs workers in the main process.
     This is probably the simplest possible sampler. It's called the "Local"
     sampler because it runs everything in the same process and thread as where
@@ -407,10 +415,10 @@ class CustomSampler(Sampler):
         if worker_factory is None and max_episode_length is None:
             raise TypeError('Must construct a sampler from WorkerFactory or'
                             'parameters (at least max_episode_length)')
-        if isinstance(worker_factory, SurpriseWorkerFactory):
+        if isinstance(worker_factory, SOMaxSurpriseWorkerFactory):
             self._factory = worker_factory
         else:
-            self._factory = SurpriseWorkerFactory(
+            self._factory = SOMaxSurpriseWorkerFactory(
                 max_episode_length=max_episode_length,
                 is_tf_worker=is_tf_worker,
                 seed=seed,
