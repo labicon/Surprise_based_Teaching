@@ -81,8 +81,8 @@ class SurpriseWorker(Worker):
 
         teacher_log = self.regressor.log_likelihood(states_actions, new_states)
         student_log = self.student_regressor.log_likelihood(states_actions, new_states)
-        eta1 = self.eta0 / np.max([1.0, np.mean(np.abs(teacher_reward))])
-        eta2 = self.eta0 / np.max([1.0, np.mean(np.abs(student_reward))])
+        eta1 = self.eta0 / np.max([1.0, np.mean(teacher_reward)])
+        eta2 = self.eta0 / np.max([1.0, np.mean(student_reward)])
         surprise_reward = -eta1*teacher_log + 2*eta2*(teacher_log - student_log) 
         
         new_reward = torch.tensor(teacher_reward) + surprise_reward.reshape(surprise_reward.shape[0])

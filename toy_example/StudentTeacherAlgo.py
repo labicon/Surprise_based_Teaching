@@ -120,7 +120,6 @@ class Teacher(VPG):
                          use_softplus_entropy=use_softplus_entropy,
                          stop_entropy_gradient=stop_entropy_gradient,
                          entropy_method=entropy_method)
-        #self.sampler = sampler
     def _compute_objective(self, advantages, obs, actions, rewards):
         r"""Compute objective value.
 
@@ -180,7 +179,6 @@ class Teacher(VPG):
     
     
     
-    """Implementation of Behavioral Cloning in PyTorch."""
 
 
 
@@ -193,7 +191,7 @@ class Curriculum(VPG):
                  student_sampler,
                  batch_size,
                  student_policy_optimizer=torch.optim.Adam,
-                 policy_lr=_Default(1e-3),
+                 policy_lr=1e-3,
                  loss='log_prob',
                  minibatches_per_epoch=16,
                  name='BC'):
@@ -216,6 +214,7 @@ class Curriculum(VPG):
         self._student_optimizer = make_optimizer(student_policy_optimizer,
                                          module=self.learner,
                                          lr=policy_lr)
+                                         
         
         self.student_policy = student_policy 
         self.student_sampler = student_sampler
@@ -257,12 +256,9 @@ class Curriculum(VPG):
                 last_return = self.teacher._train_once(trainer.step_itr, eps)
                 trainer.step_itr += 1
             
-            if self._eval_env is not None:
-                log_performance(_,
-                                obtain_evaluation_episodes(
-                                    self.teacher_policy, self._eval_env),
-                                discount=1.0, prefix = 'TeacherEval')
-                
+            
+            
+            
             self._source = self.teacher_policy 
             self.policy = self.learner
             self._sampler = self.student_sampler
@@ -270,8 +266,16 @@ class Curriculum(VPG):
             if self._eval_env is not None:
                 log_performance(_,
                                 obtain_evaluation_episodes(
-                                    self.learner, self._eval_env),
+                                    self.teacher_policy, self._eval_env, 
+                                    deterministic = False),
+                                discount=1.0, prefix = 'TeacherEval')
+                
+            if self._eval_env is not None:
+                log_performance(_,
+                                obtain_evaluation_episodes(
+                                    self.learner, self._eval_env, deterministic = False),
                                 discount=1.0)
+                
             losses = self.student_train_once(trainer, _)
             with tabular.prefix(self._name + '/'):
                 tabular.record('MeanLoss', np.mean(losses))
