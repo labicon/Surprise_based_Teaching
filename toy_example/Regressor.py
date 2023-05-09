@@ -125,7 +125,7 @@ class PNNLoss_Gaussian(nn.Module):
         # Initializes parameterss
         d2 = output.size()[1]
         d = torch.tensor(d2 / 2, dtype=torch.int32)
-        mean = output[:, :d2]
+        mean = output[:, :d]
         
         logvar = output[:, d:]
         # Caps max and min log to avoid NaNs
@@ -159,12 +159,14 @@ class Regressor():
         self.model = GaussianMLP(input_dim, output_dim, hidden_sizes)
         self.loss = PNNLoss_Gaussian()
         
-    def fit(self, x_inp, out_real): 
+    def fit(self, x_inp, out_real, epochs = 50): 
         optimizer = torch.optim.Adam(params = self.model.parameters(), lr = 1e-4)
         
-        for i in range(50): 
+        for j in range(epochs): 
             out = self.model(x_inp)
-            log_var = out[:,2:]
+            d2 = out.size()[1]
+            d = torch.tensor(d2 / 2, dtype=torch.int32)
+            log_var = out[:,d:]
             max_indx = torch.argmax(log_var,dim = 1,  keepdim = True)
             min_indx = torch.argmin(log_var, dim = 1, keepdim = True)
             
@@ -174,7 +176,7 @@ class Regressor():
                 max_logvar[i] = log_var[i, max_indx[i]]
                 min_logvar[i] = log_var[i, min_indx[i]]
                 
-            loss = self.loss(out[:,:2], out_real, max_logvar, min_logvar)
+            loss = self.loss(out, out_real, max_logvar, min_logvar)
             loss.backward()
             optimizer.step()
             
