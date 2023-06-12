@@ -31,8 +31,9 @@ from MaxSurpriseFunctions import MaxSurpriseWorkerFactory, MaxCustomSampler, Max
 from StudentOnlyMaxSurpriseFunctions import SOMaxSurpriseWorkerFactory, SOCustomSampler, SOMaxSurpriseWorker
 from garage.replay_buffer import ReplayBuffer
 from setuptools import setup 
-from StudentTeacherAlgo import Curriculum 
+from StudentTeacherAlgo_Diff import Curriculum_Diff as Curriculum 
 from DiscretePolicy import DiscreteMLPPolicy
+
 
 
 ########################################################################################
@@ -257,7 +258,7 @@ def curriculum_student_teacher_Swimmer(ctxt=None, seed=1):
 
 ########################################################################################
 #SparseHalfCheetah Env.
-@wrap_experiment(log_dir = './experiments/Sparse_HalfCheetah/MaxTRPO')
+@wrap_experiment(log_dir = './experiments/Sparse_HalfCheetah_Diff/MaxTRPO')
 def Max_TRPO_SparseHalfCheetah(ctxt=None, seed=1):
     """Trust Region Policy Optimization 
     Train a single agent maximizing its own 
@@ -271,101 +272,108 @@ def Max_TRPO_SparseHalfCheetah(ctxt=None, seed=1):
     """
     set_seed(seed)
 
-    env = GymEnv('SparseHalfCheetah-v2')
+    # env = GymEnv('SparseHalfCheetah-v2')
+
+    teacher_env = GymEnv('SparseHalfCheetah-v2')
+    student_env = GymEnv('SparseHalfCheetahLimited-v2')
+
     trainer = Trainer(ctxt)
     
-    teacher_policy = GaussianMLPPolicy(env.spec,
+    teacher_policy = GaussianMLPPolicy(teacher_env.spec,
                                hidden_sizes=[128, 128],
                                hidden_nonlinearity=torch.tanh,
                                output_nonlinearity=None)
 
-    student_policy = GaussianMLPPolicy(env.spec,
+    student_policy = GaussianMLPPolicy(student_env.spec,
                                hidden_sizes=[64, 64],
                                hidden_nonlinearity=torch.tanh,
                                output_nonlinearity=None)
     
-    value_function = GaussianMLPValueFunction(env_spec=env.spec,
+    value_function = GaussianMLPValueFunction(env_spec=teacher_env.spec,
                                               hidden_sizes=(128, 128),
                                               hidden_nonlinearity=torch.tanh,
                                               output_nonlinearity=None)
     
-    student_sampler = CustomSampler(envs = env,  
+    student_sampler = CustomSampler(envs = student_env,  
                            agents = student_policy, 
                            worker_factory = SurpriseWorkerFactory,  
-                           max_episode_length = 1000) 
+                           max_episode_length = 500) 
     
     surprise = {"surprise": True, "student": student_policy, "eta0": 0.001, "replay": None}
     
-    teacher_sampler = MaxCustomSampler(envs = env,  
+    teacher_sampler = MaxCustomSampler(envs = teacher_env,  
                            agents = teacher_policy, 
                            worker_factory = MaxSurpriseWorkerFactory, 
                            worker_args = surprise, 
-                           max_episode_length = 1000)
+                           max_episode_length = 500)
     
-    algo = Curriculum(env_spec = env.spec,
+    algo = Curriculum(env_spec = teacher_env.spec,
                       teacher_policy = teacher_policy,
                       teacher_value_function = value_function, 
                       student_policy = student_policy, 
                       teacher_sampler = teacher_sampler,
                       student_sampler = student_sampler,
-                      batch_size = 1000)
+                      batch_size = 500)
     
     
-    trainer.setup( algo = algo, env = env)
-    trainer.train(n_epochs = 1000, batch_size = 1000)
+    trainer.setup( algo = algo, env = teacher_env)
+    trainer.train(n_epochs = 1000, batch_size = 500)
 
-@wrap_experiment(log_dir = './experiments/Sparse_HalfCheetah/curriculum')
+@wrap_experiment(log_dir = './experiments/Sparse_HalfCheetah_Diff/curriculum')
 def curriculum_student_teacher_SparseHalfCheetah(ctxt=None, seed=1):
     """
     Student-teacher setup for auto-curricula using both teacher and student surprise 
     Sparse_halfcheetah environment
     """
     set_seed(seed)
-    env = GymEnv('SparseHalfCheetah-v2')
+    # env = GymEnv('SparseHalfCheetah-v2')
+    teacher_env = GymEnv('SparseHalfCheetah-v2')
+    student_env = GymEnv('SparseHalfCheetahLimited-v2')
+
     trainer = Trainer(ctxt)
     
-    teacher_policy = GaussianMLPPolicy(env.spec,
+    teacher_policy = GaussianMLPPolicy(teacher_env.spec,
                                hidden_sizes=[128, 128],
                                hidden_nonlinearity=torch.tanh,
                                output_nonlinearity=None)
     
-    student_policy = GaussianMLPPolicy(env.spec,
+    student_policy = GaussianMLPPolicy(student_env.spec,
                                hidden_sizes=[64, 64],
                                hidden_nonlinearity=torch.tanh,
                                output_nonlinearity=None)
     
     
-    value_function = GaussianMLPValueFunction(env_spec=env.spec,
+    value_function = GaussianMLPValueFunction(env_spec=teacher_env.spec,
                                               hidden_sizes=(128, 128),
                                               hidden_nonlinearity=torch.tanh,
                                               output_nonlinearity=None)
     
-    student_sampler = CustomSampler(envs = env,  
+    student_sampler = CustomSampler(envs = student_env,  
                            agents = student_policy, 
                            worker_factory = SurpriseWorkerFactory,  
-                           max_episode_length = 1000)
+                           max_episode_length = 500)
     
     surprise = {"surprise": True, "student": student_policy, "eta0": 0.001, "replay": student_sampler}
     
-    teacher_sampler = CustomSampler(envs = env,  
+    teacher_sampler = CustomSampler(envs = teacher_env,  
                            agents = teacher_policy, 
                            worker_factory = SurpriseWorkerFactory,
                            worker_class = SurpriseWorker, 
                            worker_args = surprise, 
-                           max_episode_length = 1000)
+                           max_episode_length = 500)
     
     
     
-    algo = Curriculum(env_spec = env.spec,
+    algo = Curriculum(env_spec = teacher_env.spec,
                       teacher_policy = teacher_policy,
                       teacher_value_function = value_function, 
                       student_policy = student_policy, 
                       teacher_sampler = teacher_sampler,
                       student_sampler = student_sampler,
-                      batch_size = 1000)
+                      batch_size = 500)
     
-    trainer.setup( algo = algo, env = env)
-    trainer.train(n_epochs = 1000, batch_size = 1000)
+    trainer.setup( algo = algo, env = teacher_env)
+    trainer.train(n_epochs = 1000, batch_size = 500)
 
 Max_TRPO_SparseHalfCheetah(seed = 1)
 curriculum_student_teacher_SparseHalfCheetah(seed = 1)
@@ -373,10 +381,14 @@ Max_TRPO_SparseHalfCheetah(seed = 2)
 curriculum_student_teacher_SparseHalfCheetah(seed = 2)
 Max_TRPO_SparseHalfCheetah(seed = 3)
 curriculum_student_teacher_SparseHalfCheetah(seed = 3)
-Max_TRPO_SparseHalfCheetah(seed = 4)
-curriculum_student_teacher_SparseHalfCheetah(seed = 4)
-Max_TRPO_SparseHalfCheetah(seed = 5)
-curriculum_student_teacher_SparseHalfCheetah(seed = 5)
+#Max_TRPO_SparseHalfCheetah(seed = 4)
+#curriculum_student_teacher_SparseHalfCheetah(seed = 4)
+#Max_TRPO_SparseHalfCheetah(seed = 5)
+#curriculum_student_teacher_SparseHalfCheetah(seed = 5)
+
+# Max_TRPO_without_student_SparseHalfCheetah(seed = 1)
+# Max_TRPO_without_student_SparseHalfCheetah(seed = 2)
+# Max_TRPO_without_student_SparseHalfCheetah(seed = 3)
 
 '''
 #run to test & visualize policy 

@@ -167,7 +167,7 @@ class Regressor():
             d2 = out.size()[1]
             d = torch.tensor(d2 / 2, dtype=torch.int32)
             log_var = out[:,d:]
-            max_indx = torch.argmax(log_var,dim = 1,  keepdim = True)
+            max_indx = torch.argmax(log_var, dim = 1, keepdim = True)
             min_indx = torch.argmin(log_var, dim = 1, keepdim = True)
             
             max_logvar = torch.zeros([log_var.shape[0], 1])
