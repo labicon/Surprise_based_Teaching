@@ -23,6 +23,9 @@ class GaussianMLP(nn.Module):
         self.fc2 = nn.Linear(int(hidden_size), int(hidden_size), bias=True)
         nn.init.xavier_normal_(self.fc2.weight)
 
+        self.fc3 = nn.Linear(int(hidden_size), int(hidden_size), bias=True)
+        nn.init.xavier_normal_(self.fc3.weight)
+
         self.output_layer = nn.Linear(hidden_size, 2*self.output_dim, bias=True)
         nn.init.xavier_normal_(self.output_layer.weight)
 
@@ -31,6 +34,8 @@ class GaussianMLP(nn.Module):
         x = self.fc1(input_states)
         x = F.relu(x)
         x = self.fc2(x)
+        x = F.relu(x)
+        x = self.fc3(x)
         x = F.relu(x)
 
         output = self.output_layer(x)
@@ -159,7 +164,7 @@ class Regressor():
         self.model = GaussianMLP(input_dim, output_dim, hidden_sizes)
         self.loss = PNNLoss_Gaussian()
         
-    def fit(self, x_inp, out_real, epochs = 50): 
+    def fit(self, x_inp, out_real, epochs = 10): 
         optimizer = torch.optim.Adam(params = self.model.parameters(), lr = 1e-4)
         
         for j in range(epochs): 

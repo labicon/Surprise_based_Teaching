@@ -22,7 +22,6 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from garage import log_performance
 from garage.np import discount_cumsum
 from garage.np.algos import RLAlgorithm
 from garage.torch import compute_advantages, filter_valids
@@ -185,7 +184,7 @@ class Teacher(VPG):
 
 
 class Curriculum_Diff(VPG): 
-    def __init__(self, env_spec,
+    def __init__(self, teacher_env_spec, student_env_spec,
                  teacher_policy,
                  student_policy,
                  teacher_sampler,
@@ -202,7 +201,7 @@ class Curriculum_Diff(VPG):
        
         self.teacher_sampler = teacher_sampler
         self.teacher_policy = teacher_policy
-        self.teacher = Teacher(env_spec = env_spec, 
+        self.teacher = Teacher(env_spec = teacher_env_spec, 
                                policy = self.teacher_policy, 
                                value_function = teacher_value_function, 
                                sampler = self.teacher_sampler)
@@ -225,6 +224,7 @@ class Curriculum_Diff(VPG):
         self._loss = loss
         self._minibatches_per_epoch = minibatches_per_epoch
         self._eval_env = None
+        self._student_eval_env = None
         self._batch_size = batch_size
         self._name = name
 
@@ -232,10 +232,11 @@ class Curriculum_Diff(VPG):
         #self.policy = self.learner
 
         # Public fields for sampling.
-        self._env_spec = env_spec
+        self._env_spec = teacher_env_spec
+        self._student_env_spec = student_env_spec
         self.exploration_policy = None
         #self.policy = None
-        self.max_episode_length = env_spec.max_episode_length
+        self.max_episode_length = teacher_env_spec.max_episode_length
         #self._sampler =
         if isinstance(self._source, Policy):
             self.exploration_policy = self._source
@@ -248,17 +249,19 @@ class Curriculum_Diff(VPG):
     def train(self, trainer):
 
         last_return = None
-        if not self._eval_env:
+        if self._eval_env is None:
             self._eval_env = trainer.get_env_copy()
+        if self._student_eval_env is None:
+            self._student_eval_env = trainer.get_student_env_copy()
+
         for _ in trainer.step_epochs():
             self.policy = self.teacher_policy
             self._sampler = self.teacher_sampler
             for _ in range(self.teacher._n_samples):
                 eps = trainer.obtain_episodes(trainer.step_itr)
+                trainer.step_episode = eps.to_list()
                 last_return = self.teacher._train_once(trainer.step_itr, eps)
                 trainer.step_itr += 1
-            
-            
             
             
             self._source = self.teacher_policy 
@@ -268,15 +271,17 @@ class Curriculum_Diff(VPG):
             if self._eval_env is not None:
                 log_performance(_,
                                 obtain_evaluation_episodes(
-                                    self.teacher_policy, self._eval_env, 
+                                    self.teacher_policy, self._eval_env, max_episode_length=self.max_episode_length,
                                     deterministic = False),
                                 discount=1.0, prefix = 'TeacherEval')
                 
-            if self._eval_env is not None:
+            
+            if self._student_eval_env is not None:
                 log_performance(_,
                                 obtain_evaluation_episodes(
-                                    self.learner, self._eval_env, deterministic = False),
-                                discount=1.0)
+                                    self.learner, self._student_eval_env, max_episode_length=self.max_episode_length,
+                                    deterministic = False),
+                                discount=1.0, prefix='StudentEval')
                 
             losses = self.student_train_once(trainer, _)
             with tabular.prefix(self._name + '/'):

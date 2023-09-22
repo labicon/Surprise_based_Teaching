@@ -9,7 +9,6 @@ from garage.torch.algos import PPO, TRPO, BC
 from garage.torch.policies import GaussianMLPPolicy
 from garage.torch.value_functions import GaussianMLPValueFunction
 from garage.torch.q_functions import DiscreteMLPQFunction
-from garage.trainer import Trainer
 import torch
 from garage import wrap_experiment
 from garage.envs import GymEnv
@@ -31,10 +30,10 @@ from MaxSurpriseFunctions import MaxSurpriseWorkerFactory, MaxCustomSampler, Max
 from StudentOnlyMaxSurpriseFunctions import SOMaxSurpriseWorkerFactory, SOCustomSampler, SOMaxSurpriseWorker
 from garage.replay_buffer import ReplayBuffer
 from setuptools import setup 
-from StudentTeacherAlgo_Diff import Curriculum_Diff as Curriculum 
 from DiscretePolicy import DiscreteMLPPolicy
 
-
+from StudentTeacherAlgo_Diff import Curriculum_Diff as Curriculum 
+from trainer_diff import Trainer
 
 ########################################################################################
 #Reacher Env.
@@ -258,7 +257,7 @@ def curriculum_student_teacher_Swimmer(ctxt=None, seed=1):
 
 ########################################################################################
 #SparseHalfCheetah Env.
-@wrap_experiment(log_dir = './experiments/Sparse_HalfCheetah_Diff/MaxTRPO')
+@wrap_experiment(log_dir = './experiments/Sparse_HalfCheetah_Diffstate_05/MaxTRPO', snapshot_mode='all', archive_launch_repo=False)
 def Max_TRPO_SparseHalfCheetah(ctxt=None, seed=1):
     """Trust Region Policy Optimization 
     Train a single agent maximizing its own 
@@ -299,7 +298,7 @@ def Max_TRPO_SparseHalfCheetah(ctxt=None, seed=1):
                            worker_factory = SurpriseWorkerFactory,  
                            max_episode_length = 500) 
     
-    surprise = {"surprise": True, "student": student_policy, "eta0": 0.001, "replay": None}
+    surprise = {"surprise": True, "student": student_policy, "eta0": 0.0001, "replay": None}
     
     teacher_sampler = MaxCustomSampler(envs = teacher_env,  
                            agents = teacher_policy, 
@@ -307,19 +306,20 @@ def Max_TRPO_SparseHalfCheetah(ctxt=None, seed=1):
                            worker_args = surprise, 
                            max_episode_length = 500)
     
-    algo = Curriculum(env_spec = teacher_env.spec,
+    algo = Curriculum(teacher_env_spec = teacher_env.spec,
+                      student_env_spec = student_env.spec,
                       teacher_policy = teacher_policy,
                       teacher_value_function = value_function, 
                       student_policy = student_policy, 
                       teacher_sampler = teacher_sampler,
                       student_sampler = student_sampler,
-                      batch_size = 500)
+                      batch_size = 5000)
     
     
-    trainer.setup( algo = algo, env = teacher_env)
-    trainer.train(n_epochs = 1000, batch_size = 500)
+    trainer.setup( algo = algo, env = teacher_env, student_env=student_env)
+    trainer.train(n_epochs = 1000, batch_size = 5000, store_episodes=True)
 
-@wrap_experiment(log_dir = './experiments/Sparse_HalfCheetah_Diff/curriculum')
+@wrap_experiment(log_dir = './experiments/Sparse_HalfCheetah_Diffstate_05/curriculum', snapshot_mode='all', archive_launch_repo=False)
 def curriculum_student_teacher_SparseHalfCheetah(ctxt=None, seed=1):
     """
     Student-teacher setup for auto-curricula using both teacher and student surprise 
@@ -353,7 +353,7 @@ def curriculum_student_teacher_SparseHalfCheetah(ctxt=None, seed=1):
                            worker_factory = SurpriseWorkerFactory,  
                            max_episode_length = 500)
     
-    surprise = {"surprise": True, "student": student_policy, "eta0": 0.001, "replay": student_sampler}
+    surprise = {"surprise": True, "student": student_policy, "eta0": 0.0001, "replay": student_sampler}
     
     teacher_sampler = CustomSampler(envs = teacher_env,  
                            agents = teacher_policy, 
@@ -364,40 +364,41 @@ def curriculum_student_teacher_SparseHalfCheetah(ctxt=None, seed=1):
     
     
     
-    algo = Curriculum(env_spec = teacher_env.spec,
+    algo = Curriculum(teacher_env_spec = teacher_env.spec,
+                      student_env_spec = student_env.spec,
                       teacher_policy = teacher_policy,
                       teacher_value_function = value_function, 
                       student_policy = student_policy, 
                       teacher_sampler = teacher_sampler,
                       student_sampler = student_sampler,
-                      batch_size = 500)
+                      batch_size = 5000)
     
-    trainer.setup( algo = algo, env = teacher_env)
-    trainer.train(n_epochs = 1000, batch_size = 500)
+    trainer.setup( algo = algo, env = teacher_env, student_env=student_env)
+    trainer.train(n_epochs = 1000, batch_size = 5000, store_episodes=True)
 
-Max_TRPO_SparseHalfCheetah(seed = 1)
+
 curriculum_student_teacher_SparseHalfCheetah(seed = 1)
-Max_TRPO_SparseHalfCheetah(seed = 2)
+Max_TRPO_SparseHalfCheetah(seed = 1)
 curriculum_student_teacher_SparseHalfCheetah(seed = 2)
-Max_TRPO_SparseHalfCheetah(seed = 3)
+Max_TRPO_SparseHalfCheetah(seed = 2)
 curriculum_student_teacher_SparseHalfCheetah(seed = 3)
-#Max_TRPO_SparseHalfCheetah(seed = 4)
-#curriculum_student_teacher_SparseHalfCheetah(seed = 4)
-#Max_TRPO_SparseHalfCheetah(seed = 5)
-#curriculum_student_teacher_SparseHalfCheetah(seed = 5)
+Max_TRPO_SparseHalfCheetah(seed = 3)
 
 # Max_TRPO_without_student_SparseHalfCheetah(seed = 1)
 # Max_TRPO_without_student_SparseHalfCheetah(seed = 2)
 # Max_TRPO_without_student_SparseHalfCheetah(seed = 3)
 
-'''
+
 #run to test & visualize policy 
-from garage.experiment import Snapshotter
-snapshotter = Snapshotter()
-data = snapshotter.load('./experiments/Reacher/MaxTRPO_7')
-policy = data['algo'].policy
-# You can also access other components of the experiment
-env = data['env']
-from garage import rollout
-path = rollout(env, policy, animated=True)
-'''
+# from garage.experiment import Snapshotter
+
+# snapshotter = Snapshotter()
+# data = snapshotter.load('./experiments/Sparse_HalfCheetah/curriculum_1')
+# policy = data['algo'].policy
+# # You can also access other components of the experiment
+# env = data['env']
+# # from load_rollout import rollout
+# from garage import rollout
+# path = rollout(env, policy, animated=True)
+
+# np.save('load_rollout.npy', path)

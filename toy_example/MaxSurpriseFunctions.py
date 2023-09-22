@@ -198,7 +198,7 @@ class MaxSurpriseWorker(Worker):
             self.state_action = torch.hstack([self.states, actions])
             
             student_reward = 0 
-            self.regressor = Regressor(self.state_action.shape[1], self.new_states.shape[1], 32)
+            self.regressor = Regressor(self.state_action.shape[1], self.new_states.shape[1], 256)
             self.regressor.fit(self.state_action, self.new_states)
             self.rewards = self.SurpriseBonus(self.rewards, student_reward, self.new_states, self.state_action)
             
