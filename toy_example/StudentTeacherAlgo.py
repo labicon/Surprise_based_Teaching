@@ -20,7 +20,7 @@ from dowel import tabular
 import numpy as np
 import torch
 import torch.nn.functional as F
-
+import math
 from garage import log_performance
 from garage.np import discount_cumsum
 from garage.np.algos import RLAlgorithm
@@ -39,6 +39,7 @@ from garage.np.policies import Policy
 from garage.sampler import Sampler
 from garage.torch import as_torch
 from garage.experiment import Snapshotter
+from pandas import DataFrame
 
 class Teacher(VPG):
     """Trust Region Policy Optimization (TRPO).
@@ -248,17 +249,39 @@ class Curriculum(VPG):
         last_return = None
         if not self._eval_env:
             self._eval_env = trainer.get_env_copy()
-        for _ in trainer.step_epochs():
+
+        s1 = []
+        s2 = []
+        s3 = []
+        s4 = []
+        a = []
+        e = []
+        st = []
+        for n in trainer.step_epochs():
             self.policy = self.teacher_policy
             self._sampler = self.teacher_sampler
+            for env in self._sampler._envs: 
+                env.x_threshold = 2.4
             for _ in range(self.teacher._n_samples):
                 eps = trainer.obtain_episodes(trainer.step_itr)
                 last_return = self.teacher._train_once(trainer.step_itr, eps)
                 trainer.step_itr += 1
-            
-            
-            
-            
+                obs = eps.observations_list
+                actions = eps.actions_list
+                for l in range(len(obs)):
+                    s = 0
+                    for step in range(len(obs[l])): 
+                        temp_obs = obs[l]
+                        temp_acts = actions[l]
+                        st.append(s)
+                        s+=1 
+                        s1.append(temp_obs[step][0])
+                        s2.append(temp_obs[step][1])
+                        s3.append(temp_obs[step][2])
+                        s4.append(temp_obs[step][3])
+                        a.append(temp_acts[step])
+                        e.append(n)
+
             self._source = self.teacher_policy 
             self.policy = self.learner
             self._sampler = self.student_sampler
@@ -269,7 +292,9 @@ class Curriculum(VPG):
                                     self.teacher_policy, self._eval_env, 
                                     deterministic = False),
                                 discount=1.0, prefix = 'TeacherEval')
-                
+            for env in self._sampler._envs: 
+                env.x_threshold = 2.4/2
+    
             if self._eval_env is not None:
                 log_performance(_,
                                 obtain_evaluation_episodes(
@@ -282,7 +307,16 @@ class Curriculum(VPG):
     
                 tabular.record('StdLoss', np.std(losses))
             self.teacher._sampler.student = self.learner
-            
+        d = DataFrame({'epoch': e, 
+                       'step': st, 
+                       'x': s1, 
+                       'theta': s2, 
+                       'v': s3, 
+                       'td': s4, 
+                       'a': a})
+        
+        #d.to_csv('./curr_diff_exploration_log.csv', sep = ',')
+        
         return last_return
 
     def student_train_once(self, trainer, epoch):
