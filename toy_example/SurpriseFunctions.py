@@ -143,7 +143,7 @@ class SurpriseWorker(Worker):
         if self._eps_length < self._max_episode_length:
             a, agent_info = self.agent.get_action(self._prev_obs)
             es = self.env.step(a)
-    
+            
             self._observations.append(self._prev_obs)
             
             self._env_steps.append(es)
@@ -218,11 +218,11 @@ class SurpriseWorker(Worker):
             #student_reward = torch.tensor(st_rew)
             #print(student_reward.shape)
             student_reward = st_rew.reshape(st_rew.shape[0])
-            self.student_regressor = Regressor(student_state_action.shape[1], student_new_state.shape[1], 32)
+            self.student_regressor = Regressor(student_state_action.shape[1], student_new_state.shape[1], 256)
             self.student_regressor.fit(student_state_action, student_new_state) 
             
             #student_reward = 0 
-            self.regressor = Regressor(self.state_action.shape[1], self.new_states.shape[1], 32)
+            self.regressor = Regressor(self.state_action.shape[1], self.new_states.shape[1], 256)
             self.regressor.fit(self.state_action, self.new_states)
             self.rewards = self.SurpriseBonus(self.rewards, student_reward, self.new_states, self.state_action)
             
