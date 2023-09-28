@@ -93,7 +93,7 @@ class SurpriseWorker(Worker):
         student_surprise = eta2*(teacher_log - student_log)
         student_surprise = student_surprise.reshape(student_surprise.shape[0])
 
-        surprise_reward = teacher_surprise + student_surprise 
+        surprise_reward = teacher_surprise - student_surprise 
         
         new_reward = torch.tensor(teacher_reward) + surprise_reward
         return new_reward
