@@ -94,7 +94,7 @@ class SurpriseWorker(Worker):
 
         surprise_reward = teacher_surprise + student_surprise 
         
-        new_reward = torch.tensor(teacher_reward) + surprise_reward.reshape(surprise_reward.shape[0])
+        new_reward = torch.tensor(teacher_reward) + surprise_reward
         return new_reward
 
     def calculate_surprise(self, teacher_reward, student_reward, new_states, states_actions):
@@ -112,7 +112,7 @@ class SurpriseWorker(Worker):
         student_log = self.student_regressor.log_likelihood(states_actions, teacher_new_states)
         student_surprise = eta2*(teacher_log - student_log)
         student_surprise = student_surprise.reshape(student_surprise.shape[0])
-        
+
         return teacher_surprise, student_surprise   
     
     def worker_init(self):
