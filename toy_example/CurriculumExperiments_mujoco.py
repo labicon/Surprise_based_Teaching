@@ -257,7 +257,7 @@ def curriculum_student_teacher_Swimmer(ctxt=None, seed=1):
 
 ########################################################################################
 #SparseHalfCheetah Env.
-@wrap_experiment(log_dir = './experiments/Sparse_HalfCheetah_Diffstate_05/MaxTRPO', snapshot_mode='all', archive_launch_repo=False)
+@wrap_experiment(log_dir = './experiments/Sparse_HalfCheetah_Diffspeed/MaxTRPO', snapshot_mode='all', archive_launch_repo=False)
 def Max_TRPO_SparseHalfCheetah(ctxt=None, seed=1):
     """Trust Region Policy Optimization 
     Train a single agent maximizing its own 
@@ -298,7 +298,7 @@ def Max_TRPO_SparseHalfCheetah(ctxt=None, seed=1):
                            worker_factory = SurpriseWorkerFactory,  
                            max_episode_length = 500) 
     
-    surprise = {"surprise": True, "student": student_policy, "eta0": 0.0001, "replay": None}
+    surprise = {"surprise": True, "student": student_policy, "eta0": 0.001, "replay": None}
     
     teacher_sampler = MaxCustomSampler(envs = teacher_env,  
                            agents = teacher_policy, 
@@ -319,7 +319,7 @@ def Max_TRPO_SparseHalfCheetah(ctxt=None, seed=1):
     trainer.setup( algo = algo, env = teacher_env, student_env=student_env)
     trainer.train(n_epochs = 1000, batch_size = 5000, store_episodes=True)
 
-@wrap_experiment(log_dir = './experiments/Sparse_HalfCheetah_Diffstate_05/curriculum', snapshot_mode='all', archive_launch_repo=False)
+@wrap_experiment(log_dir = './experiments/Sparse_HalfCheetah_Diffspeed/curriculum', snapshot_mode='all', archive_launch_repo=False)
 def curriculum_student_teacher_SparseHalfCheetah(ctxt=None, seed=1):
     """
     Student-teacher setup for auto-curricula using both teacher and student surprise 
@@ -353,7 +353,7 @@ def curriculum_student_teacher_SparseHalfCheetah(ctxt=None, seed=1):
                            worker_factory = SurpriseWorkerFactory,  
                            max_episode_length = 500)
     
-    surprise = {"surprise": True, "student": student_policy, "eta0": 0.0001, "replay": student_sampler}
+    surprise = {"surprise": True, "student": student_policy, "eta0": 0.001, "replay": student_sampler}
     
     teacher_sampler = CustomSampler(envs = teacher_env,  
                            agents = teacher_policy, 

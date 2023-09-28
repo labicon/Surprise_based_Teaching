@@ -14,8 +14,7 @@ import gym
 from garage.torch.algos import VPG
 from garage.torch.optimizers import (ConjugateGradientOptimizer,
                                      OptimizerWrapper)
-import collections
-import copy
+
 from garage import EpisodeBatch, StepType
 from dowel import tabular
 import numpy as np
@@ -27,7 +26,6 @@ from garage.np.algos import RLAlgorithm
 from garage.torch import compute_advantages, filter_valids
 from garage.torch.optimizers import OptimizerWrapper
 import itertools
-import akro
 
 from dowel import tabular
 import numpy as np
@@ -39,7 +37,8 @@ from garage.np.algos.rl_algorithm import RLAlgorithm
 from garage.np.policies import Policy
 from garage.sampler import Sampler
 from garage.torch import as_torch
-from garage.experiment import Snapshotter
+
+from surprise_log import log_surprise
 
 class Teacher(VPG):
     """Trust Region Policy Optimization (TRPO).
@@ -269,19 +268,23 @@ class Curriculum_Diff(VPG):
             self._sampler = self.student_sampler
             
             if self._eval_env is not None:
-                log_performance(_,
-                                obtain_evaluation_episodes(
+                teacher_evaluation_batch = obtain_evaluation_episodes(
                                     self.teacher_policy, self._eval_env, max_episode_length=self.max_episode_length,
-                                    deterministic = False),
+                                    deterministic = False)
+                log_performance(_,
+                                teacher_evaluation_batch,
                                 discount=1.0, prefix = 'TeacherEval')
                 
             
             if self._student_eval_env is not None:
-                log_performance(_,
-                                obtain_evaluation_episodes(
+                student_evaluation_batch = obtain_evaluation_episodes(
                                     self.learner, self._student_eval_env, max_episode_length=self.max_episode_length,
-                                    deterministic = False),
+                                    deterministic = False)
+                log_performance(_,
+                                student_evaluation_batch,
                                 discount=1.0, prefix='StudentEval')
+                
+            log_surprise(teacher_evaluation_batch, student_evaluation_batch, self.teacher_sampler, discount=1.0, prefix = 'Surprise')
                 
             losses = self.student_train_once(trainer, _)
             with tabular.prefix(self._name + '/'):

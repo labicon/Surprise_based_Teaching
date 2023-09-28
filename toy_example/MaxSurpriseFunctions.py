@@ -83,9 +83,18 @@ class MaxSurpriseWorker(Worker):
         eta1 = self.eta0 / np.max([1.0, np.mean(np.abs(teacher_reward))])
 
         surprise_reward = -eta1*teacher_log
-        new_reward = torch.tensor(teacher_reward) + surprise_reward.reshape(surprise_reward.shape[0])
+        teacher_surprise = surprise_reward.reshape(surprise_reward.shape[0])
+        new_reward = torch.tensor(teacher_reward) + teacher_surprise
         return new_reward
     
+    def calculate_surprise(self, teacher_reward, student_reward, new_states, states_actions):
+        teacher_log = self.regressor.log_likelihood(states_actions, new_states)
+        eta1 = self.eta0 / np.max([1.0, np.mean(np.abs(teacher_reward))])
+
+        surprise_reward = -eta1*teacher_log
+        teacher_surprise = surprise_reward.reshape(surprise_reward.shape[0])
+        student_surprise = torch.zeros_like(teacher_surprise)
+        return teacher_surprise, student_surprise
     
     def worker_init(self):
         """Initialize a worker."""
@@ -547,3 +556,16 @@ class MaxCustomSampler(Sampler):
         for worker, agent, env in zip(self._workers, self._agents, self._envs):
             worker.update_agent(agent)
             worker.update_env(env)
+
+    def calculate_surprise(self, teacher_returns, student_returns, teacher_new_states, teacher_states_actions):
+        teacher_surprise_list = []
+        student_surprise_list = []
+        for worker in self._workers:
+            teacher_surprise, student_surprise = worker.calculate_surprise(teacher_returns, student_returns, teacher_new_states, teacher_states_actions)
+            teacher_surprise_list.append(teacher_surprise)
+            student_surprise_list.append(student_surprise)
+
+        teacher_surprise = np.concatenate(teacher_surprise_list)
+        student_surprise = np.concatenate(student_surprise_list)
+
+        return np.mean(teacher_surprise), np.mean(student_surprise)

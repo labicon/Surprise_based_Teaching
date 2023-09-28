@@ -6,18 +6,22 @@ Created on Tue Mar  7 12:11:12 2023
 """
 
 import matplotlib.pyplot as plt 
-import numpy as np
-from numpy import genfromtxt as gen 
-import os
+import numpy as np 
+import argparse
 import pandas as pd
 
+parser = argparse.ArgumentParser()
+parser.add_argument('--env', type=str, default='Sparse_HalfCheetah_Diffspeed')
+parser.add_argument('--experiment_number', type=int, default=1)
 
-env_name = 'Sparse_Hopper_Diffstate'
+args = parser.parse_args()
+
+env_name = args.env
 folder = './' + env_name
 curriculum_folder = folder + '/curriculum'
 MaxTRPO_folder = folder + '/MaxTRPO'
 
-experiment_number = 4
+experiment_number = args.experiment_number
 
 data = []
 for i in range(experiment_number):
@@ -29,7 +33,7 @@ for i in range(experiment_number):
 # student evaluation
 student_evaluation = 'StudentEval/AverageReturn'
 # teacher return with surprise
-teacher_w_surprise = 'TeacherEval/TerminationRate'
+teacher_w_surprise = 'StudentEval/TerminationRate'
 # teacher return without surprise
 teacher_wout_surprise = 'TeacherEval/AverageReturn'
 
@@ -91,29 +95,29 @@ iters = np.linspace(0,epoch,epoch)
 
 
 fig1, ax1 = plt.subplots(3, figsize = (10,10))
-ax1[0].plot(iters, s_mean_c, label = 'ours_eta_0.0001')
+ax1[0].plot(iters, s_mean_c, label = 'ours_eta_0.001')
 ax1[0].fill_between(iters, (s_mean_c + s_std_c), (s_mean_c - s_std_c), alpha = .3)
 
-ax1[0].plot(iters, s_mean_m, label = 'max surp_eta_0.0001.')
+ax1[0].plot(iters, s_mean_m, label = 'max surp_eta_0.001.')
 ax1[0].fill_between(iters, (s_mean_m + s_std_m), (s_mean_m - s_std_m), alpha = .3)
 
 ax1[0].set_title(student_evaluation)
 ax1[0].legend()
 ax1[0].set_xticks([])
 
-ax1[1].plot(iters, t_mean_c, label = 'ours_eta_0.0001')
+ax1[1].plot(iters, t_mean_c, label = 'ours_eta_0.001')
 ax1[1].fill_between(iters, (t_mean_c + t_std_c), (t_mean_c - t_std_c), alpha = .3)
 
-ax1[1].plot(iters, t_mean_m, label = 'max surp_eta_0.0001.')
+ax1[1].plot(iters, t_mean_m, label = 'max surp_eta_0.001.')
 ax1[1].fill_between(iters, (t_mean_m + t_std_m), (t_mean_m - t_std_m), alpha = .3)
 
 ax1[1].set_xticks([])
 ax1[1].legend()
 ax1[1].set_title(teacher_wout_surprise)
 
-ax1[2].plot(iters, ts_mean_c, label = 'ours_eta_0.0001')
+ax1[2].plot(iters, ts_mean_c, label = 'ours_eta_0.001')
 ax1[2].fill_between(iters, (ts_mean_c + ts_std_c), (ts_mean_c - ts_std_c), alpha = .3)
-ax1[2].plot(iters, ts_mean_m, label = 'max surp_eta_0.0001.')
+ax1[2].plot(iters, ts_mean_m, label = 'max surp_eta_0.001.')
 ax1[2].fill_between(iters, (ts_mean_m + ts_std_m), (ts_mean_m - ts_std_m), alpha = .3)
 ax1[2].legend()
 ax1[2].set_title(teacher_w_surprise)

@@ -189,6 +189,11 @@ class Regressor():
         prediction = self.model(x_inp)
         return prediction 
     
+    def sample(self, x_inp): 
+        mean, logstd = self.model.get_mean_std(x_inp)
+        z = torch.randn(mean.shape)
+        return mean + z * torch.exp(logstd)
+    
     def log_likelihood(self, x_inp, y): 
         mean, logstd = self.model.get_mean_std(x_inp)
         z = (y - mean) / np.exp(logstd)

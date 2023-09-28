@@ -77,17 +77,43 @@ class SurpriseWorker(Worker):
         
 
     def SurpriseBonus(self,teacher_reward, student_reward, new_states, states_actions):
-        
-
+        # Teacher surprise wrt the environment
         teacher_log = self.regressor.log_likelihood(states_actions, new_states)
-        student_log = self.student_regressor.log_likelihood(states_actions, new_states)
         eta1 = self.eta0 / np.max([1.0, np.mean(teacher_reward)])
+
+        teacher_surprise = -eta1*teacher_log
+        teacher_surprise = teacher_surprise.reshape(teacher_surprise.shape[0])
+
+        # Student surprise wrt the teacher
         eta2 = self.eta0 / np.max([1.0, np.mean(student_reward)])
-        surprise_reward = -eta1*teacher_log + eta2*(teacher_log - student_log) 
+        # next state sampled from teacher regressor
+        teacher_new_states = self.regressor.sample(states_actions)
+        student_log = self.student_regressor.log_likelihood(states_actions, teacher_new_states)
+        student_surprise = eta2*(teacher_log - student_log)
+        student_surprise = student_surprise.reshape(student_surprise.shape[0])
+
+        surprise_reward = teacher_surprise + student_surprise 
         
         new_reward = torch.tensor(teacher_reward) + surprise_reward.reshape(surprise_reward.shape[0])
         return new_reward
-    
+
+    def calculate_surprise(self, teacher_reward, student_reward, new_states, states_actions):
+        # Teacher surprise wrt the environment
+        teacher_log = self.regressor.log_likelihood(states_actions, new_states)
+        eta1 = self.eta0 / np.max([1.0, np.mean(teacher_reward)])
+
+        teacher_surprise = -eta1*teacher_log
+        teacher_surprise = teacher_surprise.reshape(teacher_surprise.shape[0])
+
+        # Student surprise wrt the teacher
+        eta2 = self.eta0 / np.max([1.0, np.mean(student_reward)])
+        # next state sampled from teacher regressor
+        teacher_new_states = self.regressor.sample(states_actions)
+        student_log = self.student_regressor.log_likelihood(states_actions, teacher_new_states)
+        student_surprise = eta2*(teacher_log - student_log)
+        student_surprise = student_surprise.reshape(student_surprise.shape[0])
+        
+        return teacher_surprise, student_surprise   
     
     def worker_init(self):
         """Initialize a worker."""
@@ -571,3 +597,16 @@ class CustomSampler(Sampler):
         for worker, agent, env in zip(self._workers, self._agents, self._envs):
             worker.update_agent(agent)
             worker.update_env(env)
+
+    def calculate_surprise(self, teacher_returns, student_returns, teacher_new_states, teacher_states_actions):
+        teacher_surprise_list = []
+        student_surprise_list = []
+        for worker in self._workers:
+            teacher_surprise, student_surprise = worker.calculate_surprise(teacher_returns, student_returns, teacher_new_states, teacher_states_actions)
+            teacher_surprise_list.append(teacher_surprise)
+            student_surprise_list.append(student_surprise)
+
+        teacher_surprise = np.concatenate(teacher_surprise_list)
+        student_surprise = np.concatenate(student_surprise_list)
+
+        return teacher_surprise, student_surprise
