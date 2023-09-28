@@ -88,6 +88,7 @@ class SurpriseWorker(Worker):
         eta2 = self.eta0 / np.max([1.0, np.mean(student_reward)])
         # next state sampled from teacher regressor
         teacher_new_states = self.regressor.sample(states_actions)
+        teacher_log = self.regressor.log_likelihood(states_actions, teacher_new_states)
         student_log = self.student_regressor.log_likelihood(states_actions, teacher_new_states)
         student_surprise = eta2*(teacher_log - student_log)
         student_surprise = student_surprise.reshape(student_surprise.shape[0])
@@ -109,6 +110,7 @@ class SurpriseWorker(Worker):
         eta2 = self.eta0 / np.max([1.0, np.mean(student_reward)])
         # next state sampled from teacher regressor
         teacher_new_states = self.regressor.sample(states_actions)
+        teacher_log = self.regressor.log_likelihood(states_actions, teacher_new_states)
         student_log = self.student_regressor.log_likelihood(states_actions, teacher_new_states)
         student_surprise = eta2*(teacher_log - student_log)
         student_surprise = student_surprise.reshape(student_surprise.shape[0])
