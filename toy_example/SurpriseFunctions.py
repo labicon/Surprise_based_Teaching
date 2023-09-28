@@ -94,7 +94,7 @@ class SurpriseWorker(Worker):
 
         surprise_reward = teacher_surprise + student_surprise 
         
-        new_reward = torch.tensor(teacher_reward) + surprise_reward.reshape(surprise_reward.shape[0])
+        new_reward = torch.tensor(teacher_reward) + surprise_reward
         return new_reward
 
     def calculate_surprise(self, teacher_reward, student_reward, new_states, states_actions):
