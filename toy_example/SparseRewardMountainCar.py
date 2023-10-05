@@ -65,6 +65,7 @@ class SparseContinuous_MountainCarEnv(gym.Env):
     metadata = {"render.modes": ["human", "rgb_array"], "video.frames_per_second": 30}
 
     def __init__(self, goal_velocity=0):
+        self.student = False
         self.min_action = -1.0
         self.max_action = 1.0
         self.min_position = -1.2
@@ -99,7 +100,10 @@ class SparseContinuous_MountainCarEnv(gym.Env):
         return [seed]
 
     def step(self, action):
-
+        if self.student: 
+            self.power = (2/3)*0.0015 
+        else: 
+            self.power = 0.0015
         position = self.state[0]
         velocity = self.state[1]
         force = min(max(action[0], self.min_action), self.max_action)
