@@ -34,7 +34,6 @@ else:
 def curriculum_student_teacher(ctxt=None, seed=1):
     """
     Student-teacher setup for auto-curricula using both teacher and student surprise 
-    Sparse_halfcheetah environment
     """
     set_seed(seed)
     teacher_env = GymEnv(TEACHER_ENV)
@@ -68,7 +67,11 @@ def curriculum_student_teacher(ctxt=None, seed=1):
                 "eta0": CURRICULUM_WORKER_ARGS ["eta0"], 
                 "student_eta0": CURRICULUM_WORKER_ARGS ["student_eta0"], 
                 "replay": student_sampler,
-                "regressor_hidden_size": CURRICULUM_WORKER_ARGS ["regressor_hidden_size"]}
+                "regressor_hidden_size": CURRICULUM_WORKER_ARGS ["regressor_hidden_size"],
+                "regressor_epoch": CURRICULUM_WORKER_ARGS ["regressor_epoch"],
+                "regressor_batch_size": CURRICULUM_WORKER_ARGS ["regressor_batch_size"],
+                "state_dim": teacher_env.spec.observation_space.flat_dim,
+                "action_dim": teacher_env.spec.action_space.flat_dim}
     
     teacher_sampler = CustomSampler(envs = teacher_env,  
                            agents = teacher_policy, 

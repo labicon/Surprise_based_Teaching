@@ -66,8 +66,16 @@ class MaxSurpriseWorker(Worker):
             self.student_sampler = worker_args["replay"]
             self.eta0 = worker_args["eta0"]
             self.regressor_hidden_size = worker_args["regressor_hidden_size"]
-            
-        self.regressor = None
+            self.state_dim = worker_args["state_dim"]
+            self.action_dim = worker_args["action_dim"]
+
+            self.regressor = Regressor(self.state_dim + self.action_dim, 
+                                       self.state_dim, 
+                                       self.regressor_hidden_size,
+                                       epochs=worker_args["regressor_epoch"],
+                                       batch_size=worker_args["regressor_batch_size"])
+        else:
+            self.regressor = None
         
 
     def SurpriseBonus(self,teacher_reward, student_reward, new_states, states_actions):

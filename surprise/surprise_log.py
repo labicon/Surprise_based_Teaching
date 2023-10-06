@@ -54,7 +54,10 @@ def log_surprise(teacher_batch, student_batch, teacher_sampler, discount, prefix
         teacher_states = eps.observations[:-1]
         teacher_new_states = eps.observations[1:]
         teacher_returns = discount_cumsum(eps.rewards, discount)
-
+        
+        # in cartpole, teacher actions is a list of 1-element arrays
+        if teacher_actions.ndim == 1:
+            teacher_actions = teacher_actions.reshape(-1,1)
         teacher_states_actions = torch.cat((torch.tensor(teacher_states), torch.tensor(teacher_actions)), dim=1)
         teacher_new_states = torch.tensor(teacher_new_states)
 

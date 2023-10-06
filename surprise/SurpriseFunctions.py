@@ -69,10 +69,22 @@ class SurpriseWorker(Worker):
             else:
                 self.student_eta0 = self.eta0
             self.regressor_hidden_size = worker_args["regressor_hidden_size"]
+            self.state_dim = worker_args["state_dim"]
+            self.action_dim = worker_args["action_dim"]
 
-        self.regressor = None
-        self.student_regressor = None
-            
+            self.regressor = Regressor(self.state_dim + self.action_dim, 
+                                       self.state_dim, 
+                                       self.regressor_hidden_size,
+                                       worker_args["regressor_epoch"],
+                                       worker_args["regressor_batch_size"])
+            self.student_regressor = Regressor(self.state_dim + self.action_dim, 
+                                               self.state_dim, 
+                                               self.regressor_hidden_size,
+                                               worker_args["regressor_epoch"],
+                                               worker_args["regressor_batch_size"])
+        else:
+            self.regressor = None
+            self.student_regressor = None
 
     def SurpriseBonus(self,teacher_reward, student_reward, new_states, states_actions):
         # Teacher surprise wrt the environment

@@ -17,12 +17,12 @@ parser.add_argument('--experiment_number', type=int, default=1)
 args = parser.parse_args()
 
 env_name = args.env
-folder = './' + env_name
+folder = '../results/' + env_name
 curriculum_folder = folder + '/curriculum'
 MaxTRPO_folder = folder + '/MaxTRPO'
 
-curriculum_label = 'ours_eta_0.001-0.005'
-MaxTRPO_label = 'MaxSurprise_eta_0.001'
+curriculum_label = 'ours'
+MaxTRPO_label = 'MaxSurprise'
 
 save_title = env_name
 

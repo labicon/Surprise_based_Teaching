@@ -76,7 +76,11 @@ def Discrete_Max_TRPO(ctxt=None, seed=1):
                 "student": student_policy, 
                 "eta0": MAX_WORKER_ARGS["eta0"], 
                 "replay": None,
-                "regressor_hidden_size": MAX_WORKER_ARGS["regressor_hidden_size"]}
+                "regressor_hidden_size": MAX_WORKER_ARGS["regressor_hidden_size"],
+                "regressor_epoch": MAX_WORKER_ARGS["regressor_epoch"],
+                "regressor_batch_size": MAX_WORKER_ARGS["regressor_batch_size"],
+                "state_dim": teacher_env.spec.observation_space.flat_dim,
+                "action_dim": teacher_env.spec.action_space.flat_dim - 1}
     
     teacher_sampler = MaxCustomSampler(envs = teacher_env,  
                            agents = teacher_policy, 

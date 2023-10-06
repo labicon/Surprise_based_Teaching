@@ -137,7 +137,7 @@ class PNNLoss_Gaussian(nn.Module):
     
 
 class Regressor(): 
-    def __init__(self, input_dim, output_dim, hidden_sizes): 
+    def __init__(self, input_dim, output_dim, hidden_sizes, epochs = 1, batch_size = 128): 
         
         self.model = GaussianMLP(input_dim, output_dim, hidden_sizes)
         self.loss = PNNLoss_Gaussian()
@@ -148,13 +148,16 @@ class Regressor():
 
         self.output_dim = output_dim
         
-    def fit(self, x_inp, out_real, epochs = 30): 
+        self.epochs = epochs
+        self.batch_size = batch_size
+
+    def fit(self, x_inp, out_real): 
         optimizer = torch.optim.Adam(params = self.model.parameters(), lr = 1e-4)
 
         self.replay_buffer.add(x_inp, out_real)
         
-        for j in range(epochs): 
-            state_actions, next_states = self.replay_buffer.sample()
+        for j in range(self.epochs): 
+            state_actions, next_states = self.replay_buffer.sample(batch_size = self.batch_size)
 
             predicted_next_states = self.model(state_actions)
 

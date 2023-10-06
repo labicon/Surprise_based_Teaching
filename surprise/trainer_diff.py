@@ -259,8 +259,8 @@ class Trainer:
             list[dict]: One batch of samples.
 
         """
-        eps, teacher_surprise, student_surprise = self.obtain_episodes(itr, batch_size, agent_update, env_update)
-        return eps.to_list(), teacher_surprise, student_surprise
+        eps = self.obtain_episodes(itr, batch_size, agent_update, env_update)
+        return eps.to_list()
 
     def save(self, epoch):
         """Save snapshot of current batch.
