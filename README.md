@@ -8,9 +8,9 @@
 2. Change hyperparameter in config file
     * If you want to add config file for new environment, please change `curriculum.py, discrete_curriculum.py, max_surprise_trpo.py, and discrete_max_surprise_trpo.py` accordingly.
 3. Make `run_multiple_experiments.sh` executable
-```
-chmod +x run_multiple_experiments.sh
 ```bash
+chmod +x run_multiple_experiments.sh
+```
 4. Run bash file
 ```bash
 bash run_multiple_experiments.sh
