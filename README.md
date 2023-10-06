@@ -1,5 +1,16 @@
 # surprise-based-curriculum
 
+## How to run multiple experiments
+
+1. Register environment to gym
+    * Sample environment code is given in `env/`
+    * If you are planning to use different constraint for teacher and student, please register them as different environment.
+2. Change hyperparameter in config file
+    * If you want to add config file for new environment, please change `curriculum.py, discrete_curriculum.py, max_surprise_trpo.py, and discrete_max_surprise_trpo.py` accordingly.
+3. Make `run_multiple_experiments.sh` executable
+    chmod +x run_multiple_experiments.sh
+4. Run bash file
+    bash run_multiple_experiments.sh
 
 ## Setup config file
 Config file should include 
@@ -16,6 +27,10 @@ Config file should include
         * It is empty, it will use same eta0 with teacher
     * regressor_hidden_size
         * Dimension of hidden layer in dynamics regressor
+    * regressor_epoch
+        * Training epoch for regressor model
+    * regressor_batch_size
+        * Training batch size for regressor model
 * MAX_WORKER_ARGS
     * surprise
     * eta0
