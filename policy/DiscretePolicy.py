@@ -1,10 +1,10 @@
 """GaussianMLPPolicy."""
 import torch
 from torch import nn
+from torch.distributions import Categorical
 
 from garage.torch.modules import MLPModule
 from garage.torch.policies.stochastic_policy import StochasticPolicy
-from torch.distributions import Categorical
 
 class DiscreteMLPPolicy(StochasticPolicy):
     """MLP whose outputs are fed into a Normal distribution..

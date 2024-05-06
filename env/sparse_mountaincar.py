@@ -18,15 +18,7 @@ Augmented to provide reward only when the car position is greater than or equal 
 """
 
 import math
-from typing import Optional
-
 import numpy as np
-
-import gym
-from gym import spaces
-#from gym.envs.classic_control import utils
-from gym.error import DependencyNotInstalled
-from typing import Optional, SupportsFloat, Tuple
 import gym
 from gym import spaces
 from gym.utils import seeding
@@ -65,6 +57,7 @@ class SparseContinuous_MountainCarEnv(gym.Env):
     metadata = {"render.modes": ["human", "rgb_array"], "video.frames_per_second": 30}
 
     def __init__(self, goal_velocity=0):
+        self.student = False
         self.min_action = -1.0
         self.max_action = 1.0
         self.min_position = -1.2
@@ -99,7 +92,10 @@ class SparseContinuous_MountainCarEnv(gym.Env):
         return [seed]
 
     def step(self, action):
-
+        if self.student: 
+            self.power = (2/3)*0.0015 
+        else: 
+            self.power = 0.0015
         position = self.state[0]
         velocity = self.state[1]
         force = min(max(action[0], self.min_action), self.max_action)

@@ -5,30 +5,20 @@ Created on Sun Dec  4 17:53:32 2022
 
 @author: w044elc
 """
-from garage.sampler import Sampler, LocalSampler
-from garage.torch.algos import PPO 
-from garage.torch.policies import GaussianMLPPolicy
-from garage.torch.value_functions import GaussianMLPValueFunction
-from garage.trainer import Trainer
 import torch
-from garage import wrap_experiment
-from garage.envs import GymEnv
-from garage.experiment.deterministic import set_seed
+import psutil
+import copy 
 import numpy as np 
+from collections import defaultdict
+
 from garage import EpisodeBatch, StepType
 from garage.experiment import deterministic
-from garage.sampler import _apply_env_update
+from garage.sampler import _apply_env_update, Sampler
 from garage.sampler.worker import Worker
-import psutil
 from garage.experiment.deterministic import get_seed
-import abc 
-import copy 
-from collections import defaultdict
-from garage.sampler.sampler import Sampler
-from garage import EpisodeBatch
-from Regressor import Regressor
-from garage.replay_buffer import ReplayBuffer
-from dowel import tabular
+
+from model.Regressor import Regressor
+
 
 class SurpriseWorker(Worker):
     """Initialize a worker.
@@ -73,21 +63,68 @@ class SurpriseWorker(Worker):
             self.student = worker_args["student"]
             self.student_sampler = worker_args["replay"]
             self.eta0 = worker_args["eta0"]
-            
-        
+            if "student_eta0" in worker_args.keys():
+                self.student_eta0 = worker_args["student_eta0"]
+            else:
+                self.student_eta0 = self.eta0
+            self.regressor_hidden_size = worker_args["regressor_hidden_size"]
+            self.state_dim = worker_args["state_dim"]
+            self.action_dim = worker_args["action_dim"]
+
+            self.regressor = Regressor(self.state_dim + self.action_dim, 
+                                       self.state_dim, 
+                                       self.regressor_hidden_size,
+                                       worker_args["regressor_epoch"],
+                                       worker_args["regressor_batch_size"])
+            self.student_regressor = Regressor(self.state_dim + self.action_dim, 
+                                               self.state_dim, 
+                                               self.regressor_hidden_size,
+                                               worker_args["regressor_epoch"],
+                                               worker_args["regressor_batch_size"])
+        else:
+            self.regressor = None
+            self.student_regressor = None
 
     def SurpriseBonus(self,teacher_reward, student_reward, new_states, states_actions):
-        
-
+        # Teacher surprise wrt the environment
         teacher_log = self.regressor.log_likelihood(states_actions, new_states)
-        student_log = self.student_regressor.log_likelihood(states_actions, new_states)
-        eta1 = self.eta0 / np.max([1.0, np.mean(teacher_reward)])
-        eta2 = self.eta0 / np.max([1.0, np.mean(student_reward)])
-        surprise_reward = -eta1*teacher_log + eta2*(teacher_log - student_log) 
+        eta1 = self.eta0 / np.max([1.0, np.mean(np.abs(teacher_reward))])
+
+        teacher_surprise = -eta1*teacher_log
+        teacher_surprise = teacher_surprise.reshape(teacher_surprise.shape[0])
+
+        # Student surprise wrt the teacher
+        eta2 = self.student_eta0 / np.max([1.0, np.mean(np.abs(student_reward))])
+        # next state sampled from teacher regressor
+        teacher_new_states = self.regressor.sample(states_actions)
+        teacher_log = self.regressor.log_likelihood(states_actions, teacher_new_states)
+        student_log = self.student_regressor.log_likelihood(states_actions, teacher_new_states)
+        student_surprise = eta2*(teacher_log - student_log)
+        student_surprise = student_surprise.reshape(student_surprise.shape[0])
+
+        surprise_reward = teacher_surprise - student_surprise 
         
-        new_reward = torch.tensor(teacher_reward) + surprise_reward.reshape(surprise_reward.shape[0])
+        new_reward = torch.tensor(teacher_reward) + surprise_reward
         return new_reward
-    
+
+    def calculate_surprise(self, teacher_reward, student_reward, new_states, states_actions):
+        # Teacher surprise wrt the environment
+        teacher_log = self.regressor.log_likelihood(states_actions, new_states)
+        eta1 = self.eta0 / np.max([1.0, np.mean(np.abs(teacher_reward))])
+
+        teacher_surprise = -eta1*teacher_log
+        teacher_surprise = teacher_surprise.reshape(teacher_surprise.shape[0])
+
+        # Student surprise wrt the teacher
+        eta2 = self.student_eta0 / np.max([1.0, np.mean(np.abs(student_reward))])
+        # next state sampled from teacher regressor
+        teacher_new_states = self.regressor.sample(states_actions)
+        teacher_log = self.regressor.log_likelihood(states_actions, teacher_new_states)
+        student_log = self.student_regressor.log_likelihood(states_actions, teacher_new_states)
+        student_surprise = eta2*(teacher_log - student_log)
+        student_surprise = student_surprise.reshape(student_surprise.shape[0])
+
+        return teacher_surprise, student_surprise   
     
     def worker_init(self):
         """Initialize a worker."""
@@ -165,10 +202,8 @@ class SurpriseWorker(Worker):
                 to collect_episode().
         """
         observations = self._observations
-        #new_states = torch.tensor(observations)
         self._observations = []
         last_observations = self._last_observations
-        #states = torch.tensor(last_observations)
         self._last_observations = []
 
         self.actions = []
@@ -186,10 +221,8 @@ class SurpriseWorker(Worker):
             step_types.append(es.step_type)
             for k, v in es.env_info.items():
                 env_infos[k].append(v)
-        #with tabular.prefix( 'Teacher/'):
-            #tabular.record('Extrinsic Rewards', np.sum(ext_rewards))
             
-        if self.surprisal_bonus == True: 
+        if self.surprisal_bonus == True:
             self.states = torch.tensor(self.states)       
             self.new_states = self.states[1:,:]
             self.states = self.states[:-1, :]
@@ -215,14 +248,13 @@ class SurpriseWorker(Worker):
                 student_action = student_action.unsqueeze(1)
             
             student_state_action = torch.hstack([student_state, student_action])
-            #student_reward = torch.tensor(st_rew)
-            #print(student_reward.shape)
             student_reward = st_rew.reshape(st_rew.shape[0])
-            self.student_regressor = Regressor(student_state_action.shape[1], student_new_state.shape[1], 256)
-            self.student_regressor.fit(student_state_action, student_new_state) 
+            if self.student_regressor == None:
+                self.student_regressor = Regressor(student_state_action.shape[1], student_new_state.shape[1], self.regressor_hidden_size)
+            self.student_regressor.fit(student_state_action, student_new_state)             
             
-            #student_reward = 0 
-            self.regressor = Regressor(self.state_action.shape[1], self.new_states.shape[1], 256)
+            if self.regressor == None:
+                self.regressor = Regressor(self.state_action.shape[1], self.new_states.shape[1], self.regressor_hidden_size)
             self.regressor.fit(self.state_action, self.new_states)
             self.rewards = self.SurpriseBonus(self.rewards, student_reward, self.new_states, self.state_action)
             
@@ -263,8 +295,6 @@ class SurpriseWorker(Worker):
         while not self.step_episode():
             pass
         episode = self.collect_episode()
-        #print(episode)
-        #self.replay.store_episode(episode)
         
         return episode
 
@@ -571,3 +601,16 @@ class CustomSampler(Sampler):
         for worker, agent, env in zip(self._workers, self._agents, self._envs):
             worker.update_agent(agent)
             worker.update_env(env)
+
+    def calculate_surprise(self, teacher_returns, student_returns, teacher_new_states, teacher_states_actions):
+        teacher_surprise_list = []
+        student_surprise_list = []
+        for worker in self._workers:
+            teacher_surprise, student_surprise = worker.calculate_surprise(teacher_returns, student_returns, teacher_new_states, teacher_states_actions)
+            teacher_surprise_list.append(teacher_surprise)
+            student_surprise_list.append(student_surprise)
+
+        teacher_surprise = np.concatenate(teacher_surprise_list)
+        student_surprise = np.concatenate(student_surprise_list)
+
+        return teacher_surprise, student_surprise

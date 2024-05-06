@@ -1,14 +1,9 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Sun Dec  4 18:02:13 2022
-
-@author: w044elc
-"""
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from model.replay_buffer import ReplayBuffer
 
 class GaussianMLP(nn.Module):
     def __init__(self, input_dim, output_dim, hidden_size):
@@ -16,6 +11,8 @@ class GaussianMLP(nn.Module):
 
         # first half outputs mean value, last half outputs variance
         self.output_dim = output_dim
+        self.min_logvar = -2 * torch.ones(output_dim)
+        self.max_logvar = 2 * torch.ones(output_dim)
 
         self.fc1 = nn.Linear(input_dim, int(hidden_size), bias=True)
         nn.init.xavier_normal_(self.fc1.weight)
@@ -52,6 +49,9 @@ class GaussianMLP(nn.Module):
             else:
                 mean = output[:self.output_dim]
                 logvar = output[self.output_dim:]
+
+            logvar = self.max_logvar - F.softplus(self.max_logvar - logvar)
+            logvar = self.min_logvar + F.softplus(logvar - self.min_logvar)
 
         return mean, 0.5*logvar
 
@@ -98,7 +98,6 @@ class PNNLoss_Gaussian(nn.Module):
         self.idx = idx
         self.initialized_maxmin_logvar = True
         # Scalars are proportional to the variance to the loaded prediction data
-        # self.scalers    = torch.tensor([2.81690141, 2.81690141, 1.0, 0.02749491, 0.02615976, 0.00791358])
         self.scalers = torch.tensor([1, 1, 1, 1, 1, 1, 1, 1, 1])
 
         # weight the parts of loss
@@ -119,7 +118,7 @@ class PNNLoss_Gaussian(nn.Module):
         B = torch.tensor(1, dtype=torch.float)
         return (torch.log(1 + torch.exp(input.mul_(B)))).div_(B)
 
-    def forward(self, output, target, max_logvar, min_logvar):
+    def forward(self, mean, logvar, targets):
         '''
         output is a vector of length 2d
         mean is a vector of length d, which is the first set of outputs of the PNN
@@ -127,67 +126,60 @@ class PNNLoss_Gaussian(nn.Module):
         target is a vector of the target values for each of the mean
         '''
 
-        # Initializes parameterss
-        d2 = output.size()[1]
-        d = torch.tensor(d2 / 2, dtype=torch.int32)
-        mean = output[:, :d]
-        
-        logvar = output[:, d:]
-        # Caps max and min log to avoid NaNs
-        logvar = max_logvar - self.softplus_raw(max_logvar - logvar)
-        logvar = min_logvar + self.softplus_raw(logvar - min_logvar)
+        inv_var = torch.exp(-logvar)
 
-        # Computes loss
-        var = torch.exp(logvar)
-        b_s = mean.size()[0]  # batch size
+        mse_losses = torch.mean(torch.mean(torch.square(mean - targets) * inv_var, dim=-1), dim=-1)
+        var_losses = torch.mean(torch.mean(logvar, dim=-1), dim=-1)
+        total_loss = mse_losses + var_losses
 
-        eps = 0  # Add to variance to avoid 1/0
-
-        # A = mean - target.expand_as(mean)
-        # A.mul_(self.scalers)
-        # B = torch.div(mean - target.expand_as(mean), var.add(eps))
-        # # B.mul_(self.scalers)
-        # loss = torch.sum(self.lambda_mean * torch.bmm(A.view(b_s, 1, -1), B.view(b_s, -1, 1)).reshape(-1,1) + self.lambda_cov * torch.log(torch.abs(torch.prod(var.add(eps), 1)).reshape(-1, 1)))
-
-        A = self.lambda_mean * torch.sum(((mean - target.expand_as(mean)) ** 2) / var, 1)
-
-        B = self.lambda_cov * torch.log(torch.abs(torch.prod(var.add(eps), 1)))
-
-        loss = torch.sum(A + B)
-
-        return loss
+        return total_loss
     
 
 class Regressor(): 
-    def __init__(self, input_dim, output_dim, hidden_sizes): 
+    def __init__(self, input_dim, output_dim, hidden_sizes, epochs = 1, batch_size = 128): 
         
         self.model = GaussianMLP(input_dim, output_dim, hidden_sizes)
         self.loss = PNNLoss_Gaussian()
+        self.replay_buffer = ReplayBuffer()
+
+        self.max_logvar = 2 * torch.ones(output_dim)
+        self.min_logvar = -2 * torch.ones(output_dim)
+
+        self.output_dim = output_dim
         
-    def fit(self, x_inp, out_real, epochs = 10): 
+        self.epochs = epochs
+        self.batch_size = batch_size
+
+    def fit(self, x_inp, out_real): 
         optimizer = torch.optim.Adam(params = self.model.parameters(), lr = 1e-4)
+
+        self.replay_buffer.add(x_inp, out_real)
         
-        for j in range(epochs): 
-            out = self.model(x_inp)
-            d2 = out.size()[1]
-            d = torch.tensor(d2 / 2, dtype=torch.int32)
-            log_var = out[:,d:]
-            max_indx = torch.argmax(log_var, dim = 1, keepdim = True)
-            min_indx = torch.argmin(log_var, dim = 1, keepdim = True)
+        for j in range(self.epochs): 
+            state_actions, next_states = self.replay_buffer.sample(batch_size = self.batch_size)
+
+            predicted_next_states = self.model(state_actions)
+
+            # process the output of the model
+            mean = predicted_next_states[:,:self.output_dim]
+            log_var = predicted_next_states[:,self.output_dim:]
+
+            log_var = self.max_logvar - F.softplus(self.max_logvar - log_var)
+            log_var = self.min_logvar + F.softplus(log_var - self.min_logvar)
             
-            max_logvar = torch.zeros([log_var.shape[0], 1])
-            min_logvar = torch.zeros([log_var.shape[0], 1])
-            for i in range(log_var.shape[0]):
-                max_logvar[i] = log_var[i, max_indx[i]]
-                min_logvar[i] = log_var[i, min_indx[i]]
-                
-            loss = self.loss(out, out_real, max_logvar, min_logvar)
+            loss = self.loss(mean, log_var, next_states)
+            optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             
     def predict(self, x_inp): 
         prediction = self.model(x_inp)
         return prediction 
+    
+    def sample(self, x_inp): 
+        mean, logstd = self.model.get_mean_std(x_inp)
+        z = torch.randn(mean.shape)
+        return mean + z * torch.exp(logstd)
     
     def log_likelihood(self, x_inp, y): 
         mean, logstd = self.model.get_mean_std(x_inp)

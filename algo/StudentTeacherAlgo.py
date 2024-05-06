@@ -2,44 +2,24 @@
 # -*- coding: utf-8 -*-
 # yapf: disable
 
-"""
-Created on Fri Jan 13 19:34:10 2023
-
-@author: w044elc
-"""
-
 import torch
-import gym
+import itertools
+import numpy as np
+from dowel import tabular
+from pandas import DataFrame
+import torch.nn.functional as F
 
+from garage import (log_performance, make_optimizer,
+                    obtain_evaluation_episodes, TimeStepBatch)
 from garage.torch.algos import VPG
 from garage.torch.optimizers import (ConjugateGradientOptimizer,
                                      OptimizerWrapper)
-import collections
-import copy
-from garage import EpisodeBatch, StepType
-from dowel import tabular
-import numpy as np
-import torch
-import torch.nn.functional as F
-
-from garage.np import discount_cumsum
-from garage.np.algos import RLAlgorithm
-from garage.torch import compute_advantages, filter_valids
+from garage.torch import as_torch
 from garage.torch.optimizers import OptimizerWrapper
-import itertools
-import akro
-
-from dowel import tabular
-import numpy as np
-import torch
-
-from garage import (_Default, log_performance, make_optimizer,
-                    obtain_evaluation_episodes, TimeStepBatch)
-from garage.np.algos.rl_algorithm import RLAlgorithm
 from garage.np.policies import Policy
 from garage.sampler import Sampler
-from garage.torch import as_torch
-from garage.experiment import Snapshotter
+
+from surprise.surprise_log import log_surprise
 
 class Teacher(VPG):
     """Trust Region Policy Optimization (TRPO).
@@ -177,14 +157,8 @@ class Teacher(VPG):
 
         return loss
 
-    
-    
-    
-
-
-
-class Curriculum_Diff(VPG): 
-    def __init__(self, teacher_env_spec, student_env_spec,
+class Curriculum(VPG): 
+    def __init__(self, env_spec,
                  teacher_policy,
                  student_policy,
                  teacher_sampler,
@@ -197,11 +171,9 @@ class Curriculum_Diff(VPG):
                  minibatches_per_epoch=16,
                  name='BC'):
     
-        
-       
         self.teacher_sampler = teacher_sampler
         self.teacher_policy = teacher_policy
-        self.teacher = Teacher(env_spec = teacher_env_spec, 
+        self.teacher = Teacher(env_spec = env_spec, 
                                policy = self.teacher_policy, 
                                value_function = teacher_value_function, 
                                sampler = self.teacher_sampler)
@@ -224,20 +196,13 @@ class Curriculum_Diff(VPG):
         self._loss = loss
         self._minibatches_per_epoch = minibatches_per_epoch
         self._eval_env = None
-        self._student_eval_env = None
         self._batch_size = batch_size
         self._name = name
 
-        # For plotting
-        #self.policy = self.learner
-
         # Public fields for sampling.
-        self._env_spec = teacher_env_spec
-        self._student_env_spec = student_env_spec
+        self._env_spec = env_spec
         self.exploration_policy = None
-        #self.policy = None
-        self.max_episode_length = teacher_env_spec.max_episode_length
-        #self._sampler =
+        self.max_episode_length = env_spec.max_episode_length
         if isinstance(self._source, Policy):
             self.exploration_policy = self._source
             self._source = self.teacher_policy
@@ -249,39 +214,65 @@ class Curriculum_Diff(VPG):
     def train(self, trainer):
 
         last_return = None
-        if self._eval_env is None:
+        if not self._eval_env:
             self._eval_env = trainer.get_env_copy()
-        if self._student_eval_env is None:
-            self._student_eval_env = trainer.get_student_env_copy()
 
-        for _ in trainer.step_epochs():
+        s1 = []
+        s2 = []
+        s3 = []
+        s4 = []
+        a = []
+        e = []
+        st = []
+        for n in trainer.step_epochs():
             self.policy = self.teacher_policy
             self._sampler = self.teacher_sampler
+            for env in self._sampler._envs: 
+                env.x_threshold = 2.4
             for _ in range(self.teacher._n_samples):
                 eps = trainer.obtain_episodes(trainer.step_itr)
-                trainer.step_episode = eps.to_list()
                 last_return = self.teacher._train_once(trainer.step_itr, eps)
                 trainer.step_itr += 1
-            
-            
+                obs = eps.observations_list
+                actions = eps.actions_list
+                for l in range(len(obs)):
+                    s = 0
+                    for step in range(len(obs[l])): 
+                        temp_obs = obs[l]
+                        temp_acts = actions[l]
+                        st.append(s)
+                        s+=1 
+                        s1.append(temp_obs[step][0])
+                        s2.append(temp_obs[step][1])
+                        s3.append(temp_obs[step][2])
+                        s4.append(temp_obs[step][3])
+                        a.append(temp_acts[step])
+                        e.append(n)
+
             self._source = self.teacher_policy 
             self.policy = self.learner
             self._sampler = self.student_sampler
             
             if self._eval_env is not None:
+                teacher_evaluation_batch = obtain_evaluation_episodes(
+                                    self.teacher_policy, self._eval_env, 
+                                    deterministic = False)
+                                
                 log_performance(_,
-                                obtain_evaluation_episodes(
-                                    self.teacher_policy, self._eval_env, max_episode_length=self.max_episode_length,
-                                    deterministic = False),
+                                teacher_evaluation_batch,
                                 discount=1.0, prefix = 'TeacherEval')
+                                
+            for env in self._sampler._envs: 
+                env.x_threshold = 2.4/2
+    
+            if self._eval_env is not None:
+                student_evaluation_batch = obtain_evaluation_episodes(
+                                            self.learner, self._eval_env, deterministic = False)
+                log_performance(_, student_evaluation_batch,
+                                discount=1.0, prefix = 'StudentEval')
                 
-            
-            if self._student_eval_env is not None:
-                log_performance(_,
-                                obtain_evaluation_episodes(
-                                    self.learner, self._student_eval_env, max_episode_length=self.max_episode_length,
-                                    deterministic = False),
-                                discount=1.0, prefix='StudentEval')
+            log_surprise(teacher_evaluation_batch, student_evaluation_batch, 
+                        self.teacher_sampler, discount=1.0, prefix = 'Surprise')
                 
             losses = self.student_train_once(trainer, _)
             with tabular.prefix(self._name + '/'):
@@ -289,7 +280,15 @@ class Curriculum_Diff(VPG):
     
                 tabular.record('StdLoss', np.std(losses))
             self.teacher._sampler.student = self.learner
-            
+        d = DataFrame({'epoch': e, 
+                       'step': st, 
+                       'x': s1, 
+                       'theta': s2, 
+                       'v': s3, 
+                       'td': s4, 
+                       'a': a})
+        
+        
         return last_return
 
     def student_train_once(self, trainer, epoch):
