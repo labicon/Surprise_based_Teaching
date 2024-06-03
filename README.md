@@ -1,5 +1,7 @@
 # surprise-based-curriculum
 
+This is the official code for [Adaptive Teaching in Heterogeneous Agents: Balancing Surprise in Sparse Reward Scenarios](https://arxiv.org/abs/2405.14199), published in 2024 Learning for Dynamics and Control Conference (L4DC).
+
 ## How to run multiple experiments
 
 1. Register environment to gym
